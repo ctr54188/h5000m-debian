@@ -1,9 +1,10 @@
---- a/scripts/gcc-plugins/Kconfig
-+++ b/scripts/gcc-plugins/Kconfig
-@@ -10,6 +10,7 @@ menuconfig GCC_PLUGINS
+--- a/scripts/gcc-plugins/Kconfig	2026-10-04 22:59:28
++++ b/scripts/gcc-plugins/Kconfig	2026-10-04 22:59:28
+@@ -10,6 +10,7 @@
  	depends on HAVE_GCC_PLUGINS
  	depends on CC_IS_GCC
  	depends on $(success,test -e $(shell,$(CC) -print-file-name=plugin)/include/plugin-version.h)
 +	default n
  	default y
  	help
+ 	  GCC plugins are loadable modules that provide extra features to the

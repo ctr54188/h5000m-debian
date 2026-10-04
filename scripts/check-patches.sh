@@ -18,6 +18,8 @@ echo "== [1/4] 取 BSP 被我们改动的文件（pin ${BSP_COMMIT}）"
 mkdir -p bsp
 fetch() { # fetch <仓库内路径> <本地路径>
 	if [ -s "$2" ]; then echo "   复用 $2"; return; fi
+	mkdir -p "$(dirname "$2")"        # curl -o 不会建父目录，缺目录会报
+	                                  # "curl: (56) Failure writing output to destination"
 	curl -fsSL "$BSP_RAW/$1" -o "$2" || { echo "!! 取不到 $1"; return 1; }
 	echo "   $1 -> $2 ($(wc -c < "$2") B)"
 }
@@ -36,32 +38,45 @@ for p in "$ROOT"/patches/bsp/*.patch; do
 	fi
 done
 
-echo "== [3/4] 取内核源码 $KVER"
-if [ ! -d "linux-$KVER" ]; then
-	if [ ! -s "linux-$KVER.tar.xz" ]; then
-		curl -fL "$KERNEL_TARBALL_URL" -o "linux-$KVER.tar.xz"
+echo "== [3/4] 内核补丁结构校验"
+# 说明：内核补丁必须应用在「BSP 全部补丁打完之后」的树上（patches-6.12 是一整套序列，
+#       750 依赖更早的补丁，单独打到 vanilla 内核必然失败）。这里只做结构校验
+#       （补丁可解析、目标文件符合预期）；**真正应用**由 kernel job 的 BSP 构建完成。
+for p in "$ROOT"/patches/kernel-*.patch; do
+	if git apply --numstat "$p" >/tmp/numstat.$$ 2>/dev/null && [ -s /tmp/numstat.$$ ]; then
+		printf "   OK   %s\n" "$(basename "$p")"
+		sed 's/^/        /' /tmp/numstat.$$
+	else
+		printf "   FAIL %s（不是合法的 unified diff）\n" "$(basename "$p")"; fail=1
 	fi
-	tar xf "linux-$KVER.tar.xz"
-fi
+done
+rm -f /tmp/numstat.$$
+# 关键：997 必须命中 mtk_eth_soc
+grep -q "mtk_eth_soc.c" "$ROOT"/patches/kernel-997-h5000m-mt7987-eth-fixes.patch \
+	|| { echo "   FAIL 997 没有命中 mtk_eth_soc.c"; fail=1; }
 
-echo "== [4/4] 校验内核补丁（先应用 BSP 的 750/751，再应用我们的 997/998）"
-for f in 750-net-ethernet-mtk_eth_soc-add-mt7987-support.patch \
-         751-net-ethernet-mtk_eth_soc-revise-hardware-configuration-for-mt7987.patch; do
-	if [ ! -s "$f" ]; then curl -fsSL "$BSP_RAW/target/linux/mediatek/patches-6.12/$f" -o "$f"; fi
-	if patch -p1 --dry-run -d "linux-$KVER" < "$f" >/dev/null 2>&1; then
-		patch -p1 -d "linux-$KVER" < "$f" >/dev/null 2>&1; echo "   OK   (BSP) $f"
+echo "== [4/4] 关键构建配置回归检查"
+check_cfg() { # check_cfg <文件> <关键项>
+	if grep -qE "$2" "$1"; then
+		printf "   OK   %s: %s\n" "$(basename "$1")" "$2"
 	else
-		echo "   FAIL (BSP) $f"; fail=1
+		printf "   FAIL %s 缺少 %s\n" "$(basename "$1")" "$2"; fail=1
 	fi
-done
-for p in "$ROOT/patches/kernel-997-h5000m-mt7987-eth-fixes.patch" \
-         "$ROOT/patches/kernel-998-disable-gcc-plugins.patch"; do
-	if patch -p1 --dry-run -d "linux-$KVER" < "$p" >/dev/null 2>&1; then
-		echo "   OK   $(basename "$p")"
-	else
-		echo "   FAIL $(basename "$p")"; fail=1
-	fi
-done
+}
+check_cfg "$ROOT/config/bsp.config" '^CONFIG_TARGET_mediatek_filogic=y'
+# 设备符号在 .config 里通常是 "# ... is not set"（内核配置由 target/subtarget + 我们的
+# 补丁决定，与 device profile 无关）；这里只要求 target/subtarget 选对。
+check_cfg "$ROOT/config/bsp.config" '^CONFIG_TARGET_mediatek_filogic=y'
+check_cfg "$ROOT/config/bsp.config" 'CONFIG_TARGET_mediatek_filogic_DEVICE_hiveton_h5000m'
+# 历史故障：.config 里 KERNEL_DEVTMPFS 关掉 → 内核不带 DEVTMPFS → Debian 起不来
+check_cfg "$ROOT/config/bsp.config" '^CONFIG_KERNEL_DEVTMPFS=y'
+# BSP 侧补丁必须真的把 DEVTMPFS / WWAN / 80211 打开
+check_cfg "$ROOT/patches/bsp/0001-generic-config-6.12-devtmpfs-wwan-wifi.patch" '^\+CONFIG_DEVTMPFS=y'
+check_cfg "$ROOT/patches/bsp/0001-generic-config-6.12-devtmpfs-wwan-wifi.patch" '^\+CONFIG_DEVTMPFS_MOUNT=y'
+check_cfg "$ROOT/patches/bsp/0001-generic-config-6.12-devtmpfs-wwan-wifi.patch" '^\+CONFIG_MTK_T7XX=y'
+check_cfg "$ROOT/patches/bsp/0003-dts-eth-irqs-and-board-mac.patch" 'interrupt-names = "fe0", "fe1", "fe2", "fe3"'
+check_cfg "$ROOT/patches/bsp/0003-dts-eth-irqs-and-board-mac.patch" 'GIC_SPI 197'
+check_cfg "$ROOT/patches/kernel-997-h5000m-mt7987-eth-fixes.patch" 'mtk_handle_irq_fe'
 
 echo
 [ "$fail" = 0 ] && echo "== 全部补丁校验通过" || { echo "== 有补丁无法应用"; exit 1; }
