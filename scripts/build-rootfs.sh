@@ -15,7 +15,7 @@ MIRROR_DEB="${MIRROR_DEB:-http://deb.debian.org/debian}"
 MIRROR_SEC="${MIRROR_SEC:-http://deb.debian.org/debian-security}"
 export DEBIAN_FRONTEND=noninteractive
 
-[ -e "$R/usr/lib/systemd/systemd" ] || { echo "缺少 rootfs：$R（先跑 scripts/debootstrap-rootfs.sh）" >&2; exit 1; }
+[ -e "$R/usr/lib/systemd/systemd" ] || { echo "缺少 rootfs：${R}（先跑 scripts/debootstrap-rootfs.sh）" >&2; exit 1; }
 
 echo "== 挂载伪文件系统"
 mountpoint -q "$R/proc"    || mount -t proc proc "$R/proc" 2>/dev/null || true
@@ -101,7 +101,7 @@ if [ -n "$PANEL_TARBALL" ] && [ -f "$PANEL_TARBALL" ]; then
 	tar xzf "$PANEL_TARBALL" -C "$R"
 	echo "   已装入 $(basename "$PANEL_TARBALL")"
 else
-	echo "   （未提供 PANEL_TARBALL；可后补 tar xzf <面板包> -C $R）"
+	echo "   （未提供 PANEL_TARBALL；可后补 tar xzf <面板包> -C ${R}）"
 fi
 
 echo "== 启用 systemd 单元"
@@ -115,4 +115,4 @@ ln -sf /run/systemd/resolve/stub-resolv.conf "$R/etc/resolv.conf"
 
 umount "$R/dev/pts" 2>/dev/null || true; umount "$R/dev" 2>/dev/null || true
 umount "$R/sys" 2>/dev/null || true;     umount "$R/proc" 2>/dev/null || true
-echo "== 完成：$R（$(du -sh "$R" | cut -f1)）"
+echo "== 完成：${R}（$(du -sh "$R" | cut -f1)）"

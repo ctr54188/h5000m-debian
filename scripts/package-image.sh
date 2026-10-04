@@ -62,7 +62,7 @@ cat > "$OUT/kernel.its" <<ITS
 ITS
 mkimage -f "$OUT/kernel.its" "$OUT/kernel.itb" > "$OUT/fit-inspection.txt"
 
-echo "== [3/5] 生成 rootfs.ext4（$ROOTFS_SIZE 字节，label=$ROOTFS_LABEL）"
+echo "== [3/5] 生成 rootfs.ext4（$ROOTFS_SIZE 字节，label=${ROOTFS_LABEL}）"
 truncate -s "$ROOTFS_SIZE" "$OUT/root.part"
 mkfs.ext4 -F -L "$ROOTFS_LABEL" -d "$R" "$OUT/root.part" > "$OUT/mkfs.log" 2>&1
 e2fsck -fn "$OUT/root.part" > "$OUT/fsck.log" 2>&1 || true

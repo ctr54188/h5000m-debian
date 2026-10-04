@@ -26,7 +26,7 @@ make -j"$JOBS" package/kernel/linux/install
 
 mkdir -p "$OUT"
 BD="$(ls -d "$BSP"/build_dir/target-*/linux-*/linux-"$KVER" | head -1)"
-echo "== 收集产物（$BD）"
+echo "== 收集产物（${BD}）"
 cp "$BD/arch/arm64/boot/Image" "$OUT/Image"
 find "$BD/arch/arm64/boot/dts" -name 'mt7987a-hiveton-h5000m.dtb' -exec cp {} "$OUT/board.dtb" \;
 find "$BD" -name '*.ko' > "$OUT/modules.list"

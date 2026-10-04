@@ -14,7 +14,7 @@ KERNEL_TARBALL_URL="${KERNEL_TARBALL_URL:-https://cdn.kernel.org/pub/linux/kerne
 mkdir -p "$WORK"; cd "$WORK"
 fail=0
 
-echo "== [1/4] 取 BSP 被我们改动的文件（pin $BSP_COMMIT）"
+echo "== [1/4] 取 BSP 被我们改动的文件（pin ${BSP_COMMIT}）"
 mkdir -p bsp
 fetch() { # fetch <仓库内路径> <本地路径>
 	if [ -s "$2" ]; then echo "   复用 $2"; return; fi

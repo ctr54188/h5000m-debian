@@ -7,7 +7,7 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BSP="${BSP_DIR:-$ROOT/bsp}"
-[ -d "$BSP/target/linux/mediatek" ] || { echo "缺少 BSP：$BSP（先跑 scripts/fetch-bsp.sh）" >&2; exit 1; }
+[ -d "$BSP/target/linux/mediatek" ] || { echo "缺少 BSP：${BSP}（先跑 scripts/fetch-bsp.sh）" >&2; exit 1; }
 
 apply() {
 	if git -C "$BSP" apply --reverse --check "$1" 2>/dev/null; then

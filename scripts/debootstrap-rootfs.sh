@@ -8,7 +8,7 @@ SUITE="${SUITE:-trixie}"
 MIRROR="${MIRROR:-http://deb.debian.org/debian}"
 
 if [ -e "$R/usr/lib/systemd/systemd" ]; then
-	echo "== 已存在 rootfs：$R（跳过 debootstrap）"
+	echo "== 已存在 rootfs：${R}（跳过 debootstrap）"
 	exit 0
 fi
 
