@@ -1,0 +1,5 @@
+[Match]
+Name=ap24
+
+[Network]
+Bridge=br0

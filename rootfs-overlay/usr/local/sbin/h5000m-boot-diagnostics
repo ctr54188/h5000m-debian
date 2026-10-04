@@ -1,0 +1,27 @@
+#!/bin/sh
+# Read-only boot diagnostics; writes output to serial via its systemd unit.
+printf '\n===== H5000M BOOT DIAGNOSTICS =====\n'
+uname -a
+cat /proc/cmdline
+printf '\n--- udev and serial ---\n'
+systemctl is-active systemd-udevd.service systemd-udev-trigger.service serial-getty@ttyS0.service
+ls -l /dev/ttyS0
+printf '\n--- Ethernet addresses and state ---\n'
+ip -br link
+ip -br addr
+ip route
+for n in eth0 eth1; do
+    echo "--- $n ---"
+    cat /sys/class/net/$n/address /sys/class/net/$n/operstate /sys/class/net/$n/carrier 2>/dev/null
+    readlink -f /sys/class/net/$n/phydev
+    ethtool "$n" 2>&1
+    networkctl status "$n" --no-pager 2>&1
+done
+printf '\n--- networkd and udev logs ---\n'
+journalctl -b -u systemd-udevd -u systemd-networkd --no-pager -n 100
+printf '\n--- Wi-Fi ---\n'
+iw dev
+printf '\n--- PHY and Ethernet kernel messages ---\n'
+dmesg | grep -Ei 'mtk_soc_eth|PHY |Link is|mt7996e|firmware|eeprom' | tail -100
+printf '\n===== END H5000M BOOT DIAGNOSTICS =====\n'
+exit 0

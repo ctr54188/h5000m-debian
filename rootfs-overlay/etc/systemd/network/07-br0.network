@@ -1,0 +1,14 @@
+[Match]
+Name=br0
+
+[Network]
+Address=192.168.77.1/24
+DHCPServer=yes
+ConfigureWithoutCarrier=yes
+
+[DHCPServer]
+PoolOffset=10
+PoolSize=100
+EmitDNS=yes
+DNS=223.5.5.5
+DNS=114.114.114.114

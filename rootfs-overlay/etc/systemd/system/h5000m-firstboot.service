@@ -1,0 +1,14 @@
+[Unit]
+Description=H5000M first boot: grow rootfs and enable 1G swap
+After=local-fs.target
+Before=swap.target
+ConditionPathExists=!/var/lib/h5000m-firstboot.done
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/h5000m-firstboot.sh
+ExecStartPost=/bin/touch /var/lib/h5000m-firstboot.done
+
+[Install]
+WantedBy=multi-user.target

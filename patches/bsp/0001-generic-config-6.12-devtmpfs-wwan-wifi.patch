@@ -1,0 +1,42 @@
+diff --git a/target/linux/generic/config-6.12 b/target/linux/generic/config-6.12
+index 56189adee..734bdfb9e 100644
+--- a/target/linux/generic/config-6.12
++++ b/target/linux/generic/config-6.12
+@@ -876,7 +876,7 @@ CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
+ # CONFIG_CDX_BUS is not set
+ # CONFIG_CEPH_FS is not set
+ # CONFIG_CEPH_LIB is not set
+-# CONFIG_CFG80211 is not set
++CONFIG_CFG80211=m
+ # CONFIG_CFG80211_CERTIFICATION_ONUS is not set
+ CONFIG_CFG80211_HEADERS=y
+ # CONFIG_CGROUPS is not set
+@@ -1404,9 +1404,6 @@ CONFIG_DEFAULT_TCP_CONG="cubic"
+ # CONFIG_DETECT_HUNG_TASK is not set
+ # CONFIG_DEVMEM is not set
+ CONFIG_DEVPORT=y
+-# CONFIG_DEVTMPFS is not set
+-# CONFIG_DEVTMPFS_MOUNT is not set
+-# CONFIG_DEVTMPFS_SAFE is not set
+ # CONFIG_DEV_DAX is not set
+ # CONFIG_DHT11 is not set
+ CONFIG_DIMLIB=y
+@@ -3330,7 +3327,7 @@ CONFIG_LZMA_DECOMPRESS=y
+ # CONFIG_LZO_COMPRESS is not set
+ # CONFIG_LZO_DECOMPRESS is not set
+ # CONFIG_M62332 is not set
+-# CONFIG_MAC80211 is not set
++CONFIG_MAC80211=m
+ # CONFIG_MAC80211_MESSAGE_TRACING is not set
+ CONFIG_MAC80211_STA_HASH_MAX_SIZE=0
+ # CONFIG_MACB is not set
+@@ -7836,3 +7833,9 @@ CONFIG_ZRAM_DEF_COMP="unset-value"
+ # CONFIG_ZSMALLOC is not set
+ CONFIG_ZSMALLOC_CHAIN_SIZE=8
+ # CONFIG_ZSWAP is not set
++CONFIG_DEVTMPFS=y
++CONFIG_DEVTMPFS_MOUNT=y
++CONFIG_WWAN=y
++CONFIG_MTK_T7XX=y
++# CONFIG_WWAN_DEBUGFS is not set
++CONFIG_USB_SERIAL_WWAN=m

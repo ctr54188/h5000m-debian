@@ -1,0 +1,10 @@
+[Unit]
+Description=H5000M read-only serial boot diagnostics
+After=systemd-udev-trigger.service systemd-networkd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/h5000m-boot-diagnostics
+StandardOutput=append:/dev/ttyS0
+StandardError=append:/dev/ttyS0
+TimeoutStartSec=60

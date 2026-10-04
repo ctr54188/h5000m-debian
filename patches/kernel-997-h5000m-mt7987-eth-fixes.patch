@@ -1,0 +1,106 @@
+--- a/drivers/net/ethernet/mediatek/mtk_eth_soc.c
++++ b/drivers/net/ethernet/mediatek/mtk_eth_soc.c
+@@ -3594,6 +3594,22 @@
+ {
+ 	int i;
+ 
++	/* MT7987: the DTS provides eight interrupts.  Resource 0/1/2 keep
++	 * the classic shared/TX/RX slots (only used for display and the
++	 * legacy registration path); the real TX completion is delivered
++	 * on resource 5 (hwirq 229), which mtk_probe hooks separately.
++	 */
++	if (eth->soc->caps == MT7987_CAPS) {
++		eth->irq[MTK_FE_IRQ_SHARED] = platform_get_irq(pdev, 0);
++		eth->irq[MTK_FE_IRQ_TX] = platform_get_irq(pdev, 1);
++		eth->irq[MTK_FE_IRQ_RX] = platform_get_irq(pdev, 2);
++		if (eth->irq[MTK_FE_IRQ_SHARED] < 0 ||
++		    eth->irq[MTK_FE_IRQ_TX] < 0 ||
++		    eth->irq[MTK_FE_IRQ_RX] < 0)
++			return -ENXIO;
++		return 0;
++	}
++
+ 	/* future SoCs beginning with MT7988 should use named IRQs in dts */
+ 	eth->irq[MTK_FE_IRQ_TX] = platform_get_irq_byname(pdev, "fe1");
+ 	eth->irq[MTK_FE_IRQ_RX] = platform_get_irq_byname(pdev, "fe2");
+@@ -3647,6 +3663,42 @@
+ 	return IRQ_HANDLED;
+ }
+ 
++/* Combined handler used on every MT7987 ethernet interrupt line.  It only
++ * acts when the QDMA/PDMA status really carries a source we own; otherwise
++ * it returns IRQ_NONE so the kernel masks a misbehaving line instead of
++ * spinning on it forever.
++ */
++static irqreturn_t mtk_handle_irq_fe(int irq, void *_eth)
++{
++	struct mtk_eth *eth = _eth;
++	const struct mtk_reg_map *reg_map = eth->soc->reg_map;
++	irqreturn_t ret = IRQ_NONE;
++
++	if ((mtk_r32(eth, reg_map->pdma.irq_mask) &
++	     eth->soc->rx.irq_done_mask) &&
++	    (mtk_r32(eth, reg_map->pdma.irq_status) &
++	     eth->soc->rx.irq_done_mask)) {
++		mtk_handle_irq_rx(irq, _eth);
++		ret = IRQ_HANDLED;
++	}
++
++	if ((mtk_r32(eth, reg_map->tx_irq_mask) & MTK_TX_DONE_INT) &&
++	    (mtk_r32(eth, reg_map->tx_irq_status) & MTK_TX_DONE_INT)) {
++		mtk_handle_irq_tx(irq, _eth);
++		ret = IRQ_HANDLED;
++	}
++
++	if (ret == IRQ_NONE && net_ratelimit())
++		dev_info(eth->dev,
++			 "MT7987 fe irq=%d UNHANDLED pdma_st=0x%08x pdma_msk=0x%08x qtx_st=0x%08x qtx_msk=0x%08x\n",
++			 irq, mtk_r32(eth, reg_map->pdma.irq_status),
++			 mtk_r32(eth, reg_map->pdma.irq_mask),
++			 mtk_r32(eth, reg_map->tx_irq_status),
++			 mtk_r32(eth, reg_map->tx_irq_mask));
++
++	return ret;
++}
++
+ static irqreturn_t mtk_handle_irq(int irq, void *_eth)
+ {
+ 	struct mtk_eth *eth = _eth;
+@@ -5658,7 +5710,27 @@
+ 			goto err_deinit_hw;
+ 	}
+ 
+-	if (MTK_HAS_CAPS(eth->soc->caps, MTK_SHARED_INT)) {
++	if (eth->soc->caps == MT7987_CAPS) {
++		int n = platform_irq_count(pdev), k;
++
++		if (n > 8)
++			n = 8;
++		for (k = 0; k < n; k++) {
++			int irq = platform_get_irq(pdev, k);
++
++			if (irq < 0)
++				continue;
++			err = devm_request_irq(eth->dev, irq, mtk_handle_irq_fe,
++					       0, dev_name(eth->dev), eth);
++			if (err) {
++				dev_err(&pdev->dev,
++					"MT7987: request irq %d failed %d\n",
++					irq, err);
++				err = 0;
++			}
++		}
++		err = 0;
++	} else if (MTK_HAS_CAPS(eth->soc->caps, MTK_SHARED_INT)) {
+ 		err = devm_request_irq(eth->dev, eth->irq[MTK_FE_IRQ_SHARED],
+ 				       mtk_handle_irq, 0,
+ 				       dev_name(eth->dev), eth);
+@@ -6007,7 +6079,7 @@
+ 	},
+ 	.rx = {
+ 		DESC_SIZE(struct mtk_rx_dma_v2),
+-		.irq_done_mask = MTK_RX_DONE_INT_V2,
++		.irq_done_mask = MTK_RX_DONE_INT0 | MTK_RX_DONE_INT_V2,
+ 		.dma_l4_valid = RX_DMA_L4_VALID_V2,
+ 		.dma_max_len = MTK_TX_DMA_BUF_LEN_V2,
+ 		.dma_len_offset = 8,

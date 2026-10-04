@@ -1,0 +1,194 @@
+name: image
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      build_kernel:
+        description: '同时完整构建内核（40~90 分钟）'
+        type: boolean
+        default: false
+
+env:
+  KVER: '6.12.103'
+  # 内核/镜像构建很重：只在 push/tag/manual 跑（PR 只做快速校验）
+  HEAVY: ${{ github.event_name != 'pull_request' }}
+
+jobs:
+  # ---------------------------------------------------------------- 快速校验
+  check:
+    name: 补丁校验（BSP 文件 + 内核 997/998）
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: 依赖
+        run: sudo apt-get update && sudo apt-get install -y patch xz-utils curl
+      - name: 校验补丁可应用性
+        run: make check
+
+  # ---------------------------------------------------------------- Debian rootfs
+  rootfs:
+    name: Debian rootfs（debootstrap arm64 + overlay + 面板）
+    if: github.event_name != 'pull_request'
+    needs: [ check ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 依赖（debootstrap + qemu-user-static）
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y debootstrap qemu-user-static binfmt-support \
+            rsync xz-utils e2fsprogs dosfstools
+
+      - name: 生成 arm64 rootfs（本机 x86_64 → qemu 二阶段）
+        run: sudo -E scripts/debootstrap-rootfs.sh
+
+      - name: 取面板分发包（h5000m-mt5700-panel 的 latest release）
+        continue-on-error: true
+        run: scripts/fetch-panel.sh
+
+      - name: 配置 rootfs（装包 + 板级 overlay + 面板）
+        run: |
+          TARBALL="$(ls -t build/h5000m-mt5700-panel-*.tar.gz 2>/dev/null | head -1 || true)"
+          sudo -E env PANEL_TARBALL="$TARBALL" scripts/build-rootfs.sh
+
+      - name: 打包 rootfs.ext4
+        run: |
+          truncate -s 805306368 rootfs.ext4
+          sudo mkfs.ext4 -F -L rootfs -d rootfs rootfs.ext4
+          e2fsck -fn rootfs.ext4 || true
+          sha256sum rootfs.ext4 > rootfs.ext4.sha256
+          sudo tar czf rootfs-overlay-$(date +%Y%m%d).tar.gz -C rootfs .
+          ls -lh rootfs.ext4 rootfs-overlay-*.tar.gz
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debian-rootfs-arm64
+          path: |
+            rootfs.ext4
+            rootfs.ext4.sha256
+            rootfs-overlay-*.tar.gz
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------- 内核（重）
+  kernel:
+    name: 内核 + 模块 + DTB（BSP 完整构建）
+    if: github.event_name == 'workflow_dispatch' && inputs.build_kernel || startsWith(github.ref, 'refs/tags/v')
+    needs: [ check ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: OpenWrt 构建依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential clang flex bison g++ gawk \
+            gcc-multilib g++-multilib gettext git libncurses-dev libssl-dev \
+            python3 python3-setuptools python3-yaml rsync unzip zlib1g-dev \
+            file wget cpio time
+
+      - name: 缓存 BSP 下载与工具链
+        uses: actions/cache@v4
+        with:
+          path: |
+            bsp/dl
+            bsp/staging_dir
+          key: bsp-${{ env.KVER }}-${{ hashFiles('config/bsp.config', 'patches/**') }}
+          restore-keys: bsp-${{ env.KVER }}-
+
+      - name: 拉取 BSP + 打补丁
+        run: |
+          make bsp
+          make patches
+          git -C bsp status --porcelain | head -20
+
+      - name: 构建内核 / 模块 / DTB
+        run: make kernel JOBS=$(nproc)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kernel-mt7987-h5000m
+          path: |
+            out/kernel/Image
+            out/kernel/board.dtb
+            out/kernel/kernel.config
+            out/kernel/modules-*.tar.gz
+            out/kernel/modules.list
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------- 打包刷机镜像
+  package:
+    name: 打包 sysupgrade 镜像（.bin）
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.build_kernel)
+    needs: [ kernel, rootfs ]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 依赖
+        run: sudo apt-get update && sudo apt-get install -y u-boot-tools device-tree-compiler e2fsprogs
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: kernel-mt7987-h5000m
+          path: out/kernel
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: debian-rootfs-arm64
+          path: rootfs-artifact
+        # rootfs.ext4 用作 source 太慢；这里直接解 rootfs 树
+      - name: 还原 rootfs 树
+        run: |
+          mkdir -p rootfs
+          sudo tar xzf rootfs-artifact/rootfs-overlay-*.tar.gz -C rootfs
+          sudo chown -R "$(id -u):$(id -g)" rootfs
+
+      - name: 装入内核模块并生成 modules.dep
+        run: |
+          sudo mkdir -p rootfs/lib/modules/${{ env.KVER }}
+          sudo tar xzf out/kernel/modules-${{ env.KVER }}.tar.gz -C rootfs/lib/modules/${{ env.KVER }}
+          echo "模块数：$(find rootfs/lib/modules/${{ env.KVER }} -name '*.ko' | wc -l)"
+          sudo depmod -b "$PWD/rootfs" ${{ env.KVER }} 2>&1 | tail -3 || true
+          ls rootfs/lib/modules/${{ env.KVER }}/modules.dep >/dev/null && echo "modules.dep 已生成"
+
+      - name: 打包
+        run: |
+          IMAGE=out/kernel/Image DTB=out/kernel/board.dtb ROOTFS_DIR="$PWD/rootfs" scripts/package-image.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: h5000m-debian-image
+          path: |
+            out/image-*/
+            out/image-*/*.sha256
+          if-no-files-found: error
+
+      - name: 发布 release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/image-*/debian-13-h5000m.bin
+            out/image-*/debian-13-h5000m.bin.sha256
+            out/image-*/kernel.itb
+            out/image-*/board.dtb
+            out/kernel/modules-*.tar.gz
+            rootfs-artifact/rootfs.ext4
+            rootfs-artifact/rootfs.ext4.sha256
+          generate_release_notes: true
+          body: |
+            H5000M Debian 13 (ARM64) 镜像与内核产物。
+
+            * `debian-13-h5000m.bin` —— U-Boot 网页升级用（**只刷 Firmware 项**，
+              不要动 BL2/FIP/GPT）。先核对 `sha256sum`。
+            * `kernel.itb` / `board.dtb` —— 内核与设备树。
+            * `modules-6.12.103.tar.gz`、`rootfs.ext4` —— 模块与根文件系统。

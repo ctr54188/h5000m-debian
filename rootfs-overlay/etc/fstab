@@ -1,0 +1,4 @@
+# <file system>        <mount point>  <type>  <options>          <dump> <pass>
+PARTLABEL=rootfs       /              auto    defaults,noatime   0      1
+proc                   /proc          proc    defaults           0      0
+/swapfile none swap sw 0 0

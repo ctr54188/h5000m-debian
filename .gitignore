@@ -1,0 +1,6 @@
+/bsp/
+/rootfs/
+/out/
+/build/
+/*.ext4
+/*.bin

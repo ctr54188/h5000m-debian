@@ -1,0 +1,12 @@
+[Match]
+Name=eth1
+
+[Link]
+MACAddress=0e:c7:2f:5b:6a:85
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes
+
+[DHCPv4]
+UseDomains=yes

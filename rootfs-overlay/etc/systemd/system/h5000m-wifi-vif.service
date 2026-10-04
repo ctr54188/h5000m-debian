@@ -1,0 +1,13 @@
+[Unit]
+Description=Create MT7992 AP vifs (ap24/ap5g) with unique MACs
+After=systemd-udevd.service
+Wants=systemd-udevd.service
+Before=hostapd.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/h5000m-wifi-vif.sh
+
+[Install]
+WantedBy=multi-user.target

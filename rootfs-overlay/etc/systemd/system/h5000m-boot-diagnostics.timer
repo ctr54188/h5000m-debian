@@ -1,0 +1,7 @@
+[Unit]
+Description=Collect H5000M diagnostics after networking starts
+[Timer]
+OnBootSec=30s
+Unit=h5000m-boot-diagnostics.service
+[Install]
+WantedBy=timers.target

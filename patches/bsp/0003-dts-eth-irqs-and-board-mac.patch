@@ -1,0 +1,40 @@
+diff --git a/target/linux/mediatek/dts/mt7987.dtsi b/target/linux/mediatek/dts/mt7987.dtsi
+index 6a905603f..bf9b947a0 100644
+--- a/target/linux/mediatek/dts/mt7987.dtsi
++++ b/target/linux/mediatek/dts/mt7987.dtsi
+@@ -1075,10 +1075,15 @@
+ 			compatible = "mediatek,mt7987-eth";
+ 			reg = <0 0x15100000 0 0x80000>,
+ 			      <0 0x15400000 0 0x20000>;
+-			interrupts = <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>,
++			interrupts = <GIC_SPI 189 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 190 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 191 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 192 IRQ_TYPE_LEVEL_HIGH>,
++				     <GIC_SPI 196 IRQ_TYPE_LEVEL_HIGH>,
+ 				     <GIC_SPI 197 IRQ_TYPE_LEVEL_HIGH>,
+ 				     <GIC_SPI 198 IRQ_TYPE_LEVEL_HIGH>,
+ 				     <GIC_SPI 199 IRQ_TYPE_LEVEL_HIGH>;
++			interrupt-names = "fe0", "fe1", "fe2", "fe3";
+ 			clocks = <&ethsys CLK_ETHDMA_FE_EN>,
+ 				 <&ethsys CLK_ETHDMA_GP2_EN>,
+ 				 <&ethsys CLK_ETHDMA_GP1_EN>,
+diff --git a/target/linux/mediatek/dts/mt7987a-hiveton-h5000m.dts b/target/linux/mediatek/dts/mt7987a-hiveton-h5000m.dts
+index 7c4ff8a1a..4c413ccf0 100644
+--- a/target/linux/mediatek/dts/mt7987a-hiveton-h5000m.dts
++++ b/target/linux/mediatek/dts/mt7987a-hiveton-h5000m.dts
+@@ -100,12 +100,14 @@
+ };
+ 
+ &gmac0 {
++	mac-address = [0e c7 2f 5b 6a 84];
+ 	phy-mode = "2500base-x";
+ 	phy-handle = <&phy0>;
+ 	status = "okay";
+ };
+ 
+ &gmac1 {
++	mac-address = [0e c7 2f 5b 6a 85];
+ 	phy-mode = "internal";
+ 	phy-handle = <&phy1>;
+ 	status = "okay";

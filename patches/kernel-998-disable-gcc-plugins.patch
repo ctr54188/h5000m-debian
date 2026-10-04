@@ -1,0 +1,9 @@
+--- a/scripts/gcc-plugins/Kconfig
++++ b/scripts/gcc-plugins/Kconfig
+@@ -10,6 +10,7 @@ menuconfig GCC_PLUGINS
+ 	depends on HAVE_GCC_PLUGINS
+ 	depends on CC_IS_GCC
+ 	depends on $(success,test -e $(shell,$(CC) -print-file-name=plugin)/include/plugin-version.h)
++	default n
+ 	default y
+ 	help

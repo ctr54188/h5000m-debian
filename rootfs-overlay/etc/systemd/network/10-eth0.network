@@ -1,0 +1,13 @@
+[Match]
+Name=eth0
+
+[Link]
+MACAddress=0e:c7:2f:5b:6a:84
+
+[Network]
+DHCP=yes
+IPv6AcceptRA=yes
+
+[DHCPv4]
+UseDomains=yes
+RouteMetric=100

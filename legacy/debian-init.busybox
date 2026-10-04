@@ -1,0 +1,54 @@
+#!/bin/busybox sh
+# /sbin/init for MT7987 Debian.
+#
+# The OpenWrt/ImmortalWrt kernels used here are built WITHOUT CONFIG_DEVTMPFS,
+# so the kernel does not populate /dev. systemd's mount table has /dev as
+# MNT_FATAL devtmpfs, but it *skips* mounting when /dev is already a mount point.
+# So we mount tmpfs on /dev, create the early static nodes, mount proc/sys/devpts,
+# then hand over to systemd (PID 1).
+
+BB=/bin/busybox
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export HOME=/
+
+say() { echo "[init] $*"; }
+
+say "MT7987 Debian early init ($(uname -r))"
+
+$BB mkdir -p /dev /proc /sys /run /tmp /dev/pts /dev/shm
+$BB mount -t tmpfs -o mode=0755,nosuid,strictatime tmpfs /dev 2>/dev/null
+
+mknod_t() { [ -e "$1" ] || $BB mknod -m "$2" "$1" "$3" "$4" "$5" 2>/dev/null; }
+mknod_t /dev/null   666 c 1 3
+mknod_t /dev/zero   666 c 1 5
+mknod_t /dev/full   666 c 1 7
+mknod_t /dev/random 666 c 1 8
+mknod_t /dev/urandom 666 c 1 9
+mknod_t /dev/kmsg   600 c 1 11
+mknod_t /dev/console 600 c 5 1
+mknod_t /dev/tty     666 c 5 0
+mknod_t /dev/ptmx    666 c 5 2
+mknod_t /dev/ttyS0   666 c 4 64
+mknod_t /dev/tty1    666 c 4 1
+$BB mkdir -p /dev/pts /dev/shm
+$BB ln -sf /proc/self/fd /dev/fd 2>/dev/null
+
+$BB mount -t proc  proc  /proc 2>/dev/null
+$BB mount -t sysfs sysfs /sys  2>/dev/null
+$BB mount -t devpts devpts /dev/pts -o gid=5,mode=620,ptmxmode=0666 2>/dev/null
+$BB mount -t tmpfs -o mode=1777 tmpfs /tmp 2>/dev/null
+$BB mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run 2>/dev/null
+
+# make sure root is writable (kernel may mount it ro)
+$BB mount -o remount,rw / 2>/dev/null
+
+# a few modules that could matter before udev; mostly everything is built-in
+for m in mmc_block mtk_sd; do $BB modprobe "$m" 2>/dev/null; done
+
+if [ ! -x /lib/systemd/systemd ]; then
+  say "!! /lib/systemd/systemd not found — dropping to emergency shell"
+  exec $BB sh
+fi
+
+say "/dev prepared; starting systemd"
+exec /lib/systemd/systemd --log-target=console --log-level=info
