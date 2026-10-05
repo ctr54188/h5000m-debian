@@ -111,29 +111,61 @@ make -j$(nproc)                     # 完整 image（很久）
 
 ---
 
-## 4. GitHub Actions
+## 4. GitHub Actions（两个独立 workflow）
 
-`.github/workflows/image.yml` 四个 job：
+本仓库有**两个互不干扰**的 workflow，都在 `.github/workflows/`：
 
-| Job | 触发 | 作用 | 耗时 |
+| workflow | 面板 | 触发 | 说明 |
 | --- | --- | --- | --- |
-| `check` | push / PR / tag / 手动 | 校验全部补丁可应用（BSP 文件 + 内核 997/998） | ~2 min |
-| `rootfs` | push / tag / 手动 | debootstrap arm64（x86_64 runner 用 qemu 二阶段）+ overlay + 面板 → `rootfs.ext4` | ~15–40 min |
-| `kernel` | tag，或手动且勾选 `build_kernel` | BSP 完整构建内核 + 模块 + DTB（带 `dl/`、`staging_dir` 缓存） | ~40–120 min |
-| `package` | tag，或手动且勾选 `build_kernel` | 汇总内核与 rootfs → 装入模块 + `depmod` → `package-image.sh` → 产物；tag 时发 Release | ~5 min |
+| `image.yml` | **不带面板** | push(main) / PR / tag / 手动 | 纯系统镜像：内核 + Debian rootfs + overlay + 打包 |
+| `image-with-panel.yml` | **带面板** | 仅手动 / tag | 在上面基础上，从 **A 仓库**（`ctr54188/h5000m-mt5700-panel`）取面板并装进 rootfs |
 
-用法：
+两个 workflow 内部均为 4 个 job：
+
+| Job | 触发条件 | 作用 | 耗时 |
+| --- | --- | --- | --- |
+| `check` | 总是 | 补丁校验 + 关键配置回归检查 | ~2 min |
+| `rootfs` | 非 PR | debootstrap arm64（x86_64 runner 用 qemu 二阶段）→ 装包 → overlay（+面板）→ `rootfs.ext4` | ~15–40 min |
+| `kernel` | tag 或手动勾选 `build_kernel` | feeds → 主机工具/交叉工具链（**单独一步并缓存**）→ 内核 + 模块 + DTB | 首次 ~1.5–2 h，有缓存 ~10–20 min |
+| `package` | tag 或手动勾选 `build_kernel` | 装入内核模块 + `depmod` → `package-image.sh` → `.bin`；tag 时发 Release | ~5 min |
+
+### 4.1 与 A 仓库的关系（**单向、无触发**）
+
+* `image-with-panel.yml` **只会去 A 仓库拉东西**：优先读 A 的 release 资产（`scripts/fetch-panel.sh`），
+  取不到就**回退到源码构建**（`scripts/build-panel-from-source.sh`：`git clone` A → `make build` → 打包）。
+* A 仓库不会触发本仓库，本仓库也不会触发 A 仓库 —— 两边都没有
+  `repository_dispatch` / `workflow_run` 之类的联动。
+* 因此：**A 挂了不影响 `image.yml`**；`image-with-panel.yml` 在 A 没有 release 时也能自己编出来。
+
+在 A 仓库只提供源码、没有 release 时，带面板的构建会自动走源码回退；也可以显式勾选
+`panel_from_source`，或指定 `panel_repo` / `panel_tag`（比如要固定某个面板版本）。
+
+### 4.2 用法
 
 ```sh
-# 手动跑「内核 + 打包」：Actions → image → Run workflow → 勾选 build_kernel
-# 出正式版本（自动发布 Release）：
+# 纯系统镜像（不需要面板）：push 到 main 即自动跑；或手动
+#   Actions → image → Run workflow
+#
+# 带面板的镜像：
+#   Actions → image-with-panel → Run workflow
+#     build_kernel   = true   # 顺带编内核并打包成 .bin
+#     panel_tag      = v2.0.0 # 留空 = 用 A 的最新 release
+#     panel_from_source = false
+#
+# 出正式版本（两个 workflow 都会在 tag 上跑，各自发 Release）：
 git tag v1.0.0 && git push origin v1.0.0
 ```
 
-> `rootfs` job 会在 x86_64 runner 上用 `qemu-user-static` 跑 arm64 chroot，
-> 因此首次 `apt install` 较慢（属正常现象）。
+### 4.3 内核构建为什么要先装 feeds
 
----
+CI 上首次跑内核构建曾失败：`target/linux failed to build`（18 秒即失败）。根因是
+**BSP 克隆后没有安装 feeds**，`.config` 与源码树不同步（日志里成片的
+`has a dependency on 'xxx', which does not exist` 就是证据）。现在：
+
+1. 先 `./scripts/feeds update -a && ./scripts/feeds install -a`；
+2. 再 `make defconfig` 让 `.config` 与当前树对齐（消除 `out of sync` 警告）；
+3. 失败时自动 `make -j1 V=s` 重跑并打印最后 120 行，让根因直接出现在 CI 日志里；
+4. 工具链与 `dl/`、`feeds/` 单独缓存（**失败也会保存**），改补丁后不必重编 2 小时的工具链。
 
 ## 5. 注意事项（都是真机踩出来的）
 

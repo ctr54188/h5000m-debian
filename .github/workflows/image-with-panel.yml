@@ -1,21 +1,38 @@
-name: image
+name: image-with-panel
 
+# 带「MT5700M 模组管理面板」的镜像构建。
+#
+# 与 image.yml 的区别：多一步从 A 仓库（h5000m-mt5700-panel）取面板分发包并装进 rootfs。
+#   * 只是「拉取 release / 必要时回退到源码构建」，不会触发 A 仓库的任何 workflow；
+#   * A 仓库也不会触发本仓库（两个仓库没有 repository_dispatch / workflow_run 关联）；
+#   * 取不到面板时默认会回退：clone A 仓库 → scripts/build.sh → 本地打成 tar.gz。
+#
+# 触发方式：仅手动（Actions → image-with-panel → Run workflow），或打 tag 时。
 on:
-  push:
-    branches: [ main ]
-    tags: [ 'v*' ]
-  pull_request:
   workflow_dispatch:
     inputs:
       build_kernel:
-        description: '同时完整构建内核（40~90 分钟）'
+        description: '同时完整构建内核（首次约 1.5~2 小时，之后有缓存约 10~20 分钟）'
+        type: boolean
+        default: true
+      panel_repo:
+        description: '面板仓库（owner/repo）'
+        type: string
+        default: 'ctr54188/h5000m-mt5700-panel'
+      panel_tag:
+        description: '面板 tag（留空=latest release）'
+        type: string
+        default: ''
+      panel_from_source:
+        description: '不使用 release，直接从源码构建面板'
         type: boolean
         default: false
+  push:
+    tags: [ 'v*' ]
 
 env:
   KVER: '6.12.103'
-  # 内核/镜像构建很重：只在 push/tag/manual 跑（PR 只做快速校验）
-  HEAVY: ${{ github.event_name != 'pull_request' }}
+  HEAVY: 'true'
 
 jobs:
   # ---------------------------------------------------------------- 快速校验
@@ -32,7 +49,7 @@ jobs:
 
   # ---------------------------------------------------------------- Debian rootfs
   rootfs:
-    name: Debian rootfs（debootstrap arm64 + 板级 overlay，不含面板）
+    name: Debian rootfs（debootstrap arm64 + 板级 overlay + 面板）
     if: github.event_name != 'pull_request'
     needs: [ check ]
     runs-on: ubuntu-latest
@@ -49,8 +66,27 @@ jobs:
       - name: 生成 arm64 rootfs（本机 x86_64 → qemu 二阶段）
         run: sudo -E scripts/debootstrap-rootfs.sh
 
-      - name: 配置 rootfs（装包 + 板级 overlay）
-        run: sudo -E scripts/build-rootfs.sh
+      - name: 取面板（release；失败则回退到源码构建）
+        env:
+          PANEL_REPO: ${{ inputs.panel_repo || 'ctr54188/h5000m-mt5700-panel' }}
+          PANEL_TAG: ${{ inputs.panel_tag }}
+        run: |
+          if [ "${{ inputs.panel_from_source }}" = "true" ]; then
+            echo "== 按要求直接从源码构建面板"
+            PANEL_TARBALL="$(scripts/build-panel-from-source.sh)" scripts/fetch-panel.sh
+          else
+            scripts/fetch-panel.sh || {
+              echo "!! release 取不到面板，回退到源码构建"
+              PANEL_TARBALL="$(scripts/build-panel-from-source.sh)" scripts/fetch-panel.sh
+            }
+          fi
+          ls -l build/h5000m-mt5700-panel-*.tar.gz
+
+      - name: 配置 rootfs（装包 + 板级 overlay + 面板）
+        run: |
+          TARBALL="$(ls -t build/h5000m-mt5700-panel-*.tar.gz 2>/dev/null | head -1 || true)"
+          echo "PANEL_TARBALL=$TARBALL"
+          sudo -E env PANEL_TARBALL="$TARBALL" scripts/build-rootfs.sh
 
       - name: 打包 rootfs.ext4
         run: |
@@ -73,7 +109,7 @@ jobs:
   # ---------------------------------------------------------------- 内核（重）
   kernel:
     name: 内核 + 模块 + DTB（BSP 完整构建）
-    if: github.event_name == 'workflow_dispatch' && inputs.build_kernel || startsWith(github.ref, 'refs/tags/v')
+    if: always() && (inputs.build_kernel || startsWith(github.ref, 'refs/tags/v'))
     needs: [ check ]
     runs-on: ubuntu-latest
     timeout-minutes: 330
@@ -136,7 +172,7 @@ jobs:
   # ---------------------------------------------------------------- 打包刷机镜像
   package:
     name: 打包 sysupgrade 镜像（.bin）
-    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.build_kernel)
+    if: always() && (startsWith(github.ref, 'refs/tags/v') || inputs.build_kernel)
     needs: [ kernel, rootfs ]
     runs-on: ubuntu-latest
     timeout-minutes: 60

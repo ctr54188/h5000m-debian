@@ -19,7 +19,11 @@ patches: bsp
 check:
 	scripts/check-patches.sh
 
-## 完整内核构建（tools + toolchain + kernel + modules，40~90 分钟）
+## 主机工具 + 交叉工具链（最耗时，建议先跑并缓存；幂等）
+toolchain: patches
+	scripts/build-toolchain.sh $(JOBS)
+
+## 内核 + 模块 + DTB（需先 toolchain；产物在 out/kernel/）
 kernel: patches
 	scripts/build-kernel.sh $(JOBS)
 
