@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       build_kernel:
-        description: '同时完整构建内核（40~90 分钟）'
+        description: '同时构建内核并打包成可刷写 .bin（首次约 1.5~2 小时；有缓存后约 10~20 分钟）'
         type: boolean
         default: false
 
