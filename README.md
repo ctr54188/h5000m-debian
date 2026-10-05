@@ -241,7 +241,77 @@ USB_ACM / USB_WDM / USB_RTL8153_ECM …`，也就是 **5G USB 模组要用的整
 
 ---
 
-## 6. 刷入后自检
+## 6. 5GHz AP 带宽修复（80MHz）与 `h5000m-5g-width.sh`
+
+### 6.1 背景：默认只有 20MHz，协商速率被卡在 ~173Mbps
+
+`/etc/hostapd/ap5g.conf` 早期只写了 `ieee80211n=1 / ieee80211ac=1`，**没有带宽与 HT/VHT/HE 能力**
+（`ht_capab` / `vht_capab` / `vht_oper_chwidth`），hostapd 于是用默认 **20MHz**：
+
+```
+# 修复前（真机 iw dev）
+Interface ap5g  channel 149 (5745 MHz), width: 20 MHz
+tx bitrate: 156.0 MBit/s VHT-MCS 8 VHT-NSS 2
+```
+
+20MHz 下 11ac 2SS 上限只有 ~173Mbps（11ax 也就 ~287）—— 不是"正常"的 5GHz 表现。
+
+### 6.2 修复后的实测（真机）
+
+```
+# 修复后
+Interface ap5g  channel 149 (5745 MHz), width: 80 MHz, center1: 5775 MHz
+tx bitrate: 1200.9 MBit/s 80MHz HE-MCS 11 HE-NSS 2 HE-GI 0   ← AP→客户端（2SS 已达上限）
+rx bitrate:  680.6 MBit/s 80MHz HE-MCS 7  HE-NSS 2 HE-GI 1   ← 客户端→AP（客户端发射链较弱，正常）
+signal: -52 dBm
+```
+
+| 客户端 | 修复前(20MHz) | 修复后(80MHz) |
+| --- | --- | --- |
+| 11ac 1SS | ~86 Mbps | 433.3 Mbps |
+| 11ac 2SS | ~173 Mbps | 866.7 Mbps |
+| **11ax(HE) 2SS** | ~287 Mbps | **1200.9 Mbps** |
+| 11ax 3SS | — | 1801 Mbps（需客户端 3 流） |
+
+> `tx/rx bitrate` 是**物理层协商速率**；真实吞吐通常为其 50~60%（≈600–800Mbps），
+> 上网速度再受 5G 出口限制（面板「网络状态」页有实时速率）。
+
+### 6.3 脚本用法
+
+新镜像已自带 `/usr/local/sbin/h5000m-5g-width.sh`；老镜像/手工安装：
+
+```sh
+wget -O /usr/local/sbin/h5000m-5g-width.sh \
+  https://raw.githubusercontent.com/ctr54188/h5000m-debian/main/rootfs-overlay/usr/local/sbin/h5000m-5g-width.sh
+chmod +x /usr/local/sbin/h5000m-5g-width.sh
+```
+
+```sh
+/usr/local/sbin/h5000m-5g-width.sh --check      # 只看现状：带宽 + 各客户端协商速率
+/usr/local/sbin/h5000m-5g-width.sh              # 写入 80MHz 配置并延时重启 AP
+/usr/local/sbin/h5000m-5g-width.sh --rollback   # 一键回到最初配置
+/usr/local/sbin/h5000m-5g-width.sh --eht        # 额外尝试 Wi-Fi 7(EHT)，失败自动回退
+```
+
+| 步骤 | 说明 |
+| --- | --- |
+| 备份 | `ap5g.conf` → `ap5g.conf.bak`（已存在则不覆盖，保证能回到**最初**那版） |
+| 写配置 | `ht_capab=[HT40+][SHORT-GI-20][SHORT-GI-40][MAX-AMSDU-7935]`、`vht_capab=[MAX-MPDU-11454][RXLDPC][SHORT-GI-80][TX-STBC-2BY1][RX-STBC-1][SU-BEAMFORMEE][MU-BEAMFORMEE][MAX-A-MPDU-LEN-EXP7]`、`vht_oper_chwidth=1` + `vht_oper_centr_freq_seg0_idx=155`（80MHz）、`he_oper_chwidth=1`、`ieee80211ax=1` |
+| 重启 | `systemd-run --on-active=2 systemctl restart h5000m-ap@ap5g` —— 脱离当前 SSH/Wi-Fi 会话，避免"重启瞬间断线把命令一起杀掉" |
+| `--check` | 打印 `channel/width/txpower` + 每个客户端的 `rx/tx bitrate`、`signal` |
+| `--rollback` | 恢复备份并重启 |
+| `--eht` | 把 `ieee80211be=1` 写入临时配置并**前台试跑 4 秒**；能活着才采用，否则保留 11ax 并打印 hostapd 报错尾部 |
+
+### 6.4 注意事项
+
+* **重启 AP 会短暂断开 Wi-Fi**（几秒后自动重连）；SSH 会话会断，重连即可，有串口控制台最稳。
+* 设备上 hostapd 为 **v2.10**，最高支持 **11ax(HE)**；Wi-Fi 7 的 `ieee80211be=1` 需要 hostapd ≥ 2.11，
+  因此默认不启用（`ap5g.conf` 里留了注释行）。客户端若本就是 11ax，则没有任何损失。
+* 2.4G **保持 20MHz**（拥挤频段开 40MHz 通常更差），但已启用 `ieee80211ax=1` + `SHORT-GI-20`。
+* 相关文件：`rootfs-overlay/etc/hostapd/ap5g.conf`、`rootfs-overlay/etc/hostapd/ap24.conf`、
+  `rootfs-overlay/usr/local/sbin/h5000m-5g-width.sh`。
+
+## 7. 刷入后自检
 
 ```bash
 df -h / ; free -m                                  # / 已扩容 + swap 生效
@@ -258,7 +328,7 @@ ethtool -S eth0 | grep -i tx | head                # TX 计数在涨（TX 修复
 
 ---
 
-## 7. 目录结构
+## 8. 目录结构
 
 ```
 patches/
@@ -268,7 +338,8 @@ patches/
 config/
   bsp.config               OpenWrt 构建配置（pin 的 .config）
   kernel-6.12.103.config   参考内核配置
-rootfs-overlay/            板级系统文件（网络/AP/防火墙/风扇/5G/面板 unit 等 27 个文件）
+rootfs-overlay/            板级系统文件（网络/AP/防火墙/风扇/5G/面板 unit 等）
+  usr/local/sbin/h5000m-5g-width.sh   5GHz 20MHz→80MHz 一键修复（见 §6）
 dts/                       打补丁后的 DTS 参考副本（便于比对）
 scripts/                   fetch-bsp / apply-bsp-patches / check-patches / build-kernel
                            debootstrap-rootfs / build-rootfs / enable-units / fetch-panel / package-image
@@ -291,6 +362,7 @@ docs/                      刷机说明、以太网 TX 逆向记录
 | **有线：链路 / TX / RX** | `patches/kernel-997-*.patch`（TX 完成中断注册到全部 8 条线 + RX done mask）<br>`patches/bsp/0003-*.patch`（DTS 列全 8 条中断 + `interrupt-names = "fe0".."fe3"`） |
 | **有线：DHCP** | `rootfs-overlay/etc/systemd/network/10-eth0.network`、`11-eth1.network`（`DHCP=yes` + `RouteMetric=100`） |
 | **有线：HNAT/PPE 硬件卸载** | `rootfs-overlay/etc/nftables.conf` → `table inet hwnat { flowtable f { devices = { eth0, eth1 }; flags offload } }`（`flags offload` 才是打开 PPE 的开关；表名不用保留字 `offload`） |
+| **5GHz 80MHz（协商速率 1200Mbps）** | `rootfs-overlay/etc/hostapd/ap5g.conf`（`vht/he_oper_chwidth=1` + `ht_capab`/`vht_capab`）<br>`rootfs-overlay/usr/local/sbin/h5000m-5g-width.sh`（一键修复/校验/回滚，见 §6） |
 | **双频 AP（2.4G ch6 / 5G ch149）** | `etc/hostapd/ap24.conf`（`hw_mode=g channel=6`）、`ap5g.conf`（`hw_mode=a channel=149`）<br>`etc/systemd/system/h5000m-ap@.service` + `h5000m-ap@ap24/ap5g`（enable 见 `scripts/enable-units.sh`）<br>`usr/local/sbin/h5000m-wifi-vif.sh`（建 vif + **独立 MAC** + `iw reg set CN`）<br>`etc/systemd/network/{05-br0.netdev,07-br0.network,20-ap24,20-ap5g}.network`（`br0 192.168.77.1/24` + `DHCPServer=yes` + 公共 DNS）<br>`etc/systemd/network/99-no-altnames.link`（`AlternativeNamesPolicy=none`，避免 udev 别名 `ENOTUNIQ`） |
 | **AP 客户端上网（DHCP + NAT）** | `etc/nftables.conf` → `ip saddr 192.168.77.0/24 oifname != "br0" masquerade`（覆盖有线与 5G 出口）<br>NAT 写在**我们自己的** `/etc/nftables.conf`（`flush ruleset` 会清掉 networkd 的 IPMasquerade） |
 | **无线驱动** | `config/bsp.config` 选中 `kmod-mt76 / kmod-mt76-connac / kmod-mt7996e / kmod-mt7992-firmware / kmod-mt7992-23-firmware / kmod-mt7996-firmware(-common)`<br>`scripts/build-kernel.sh` 会编 `package/kernel/mt76` 并收集 `.ko` 与固件 |
