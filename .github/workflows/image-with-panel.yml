@@ -54,22 +54,20 @@ jobs:
 
   # ---------------------------------------------------------------- Debian rootfs
   rootfs:
-    name: Debian rootfs（debootstrap arm64 + 板级 overlay + 面板）
+    name: Debian rootfs（arm64 Docker 原生 + 面板）
     if: github.event_name != 'pull_request'
     needs: [ check ]
-    runs-on: ubuntu-latest
-    timeout-minutes: 180
+    # arm64 原生 runner：容器里 apt 是原生速度，不再走 qemu 仿真
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
-      - name: 依赖（debootstrap + qemu-user-static）
+      - name: 依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y debootstrap qemu-user-static binfmt-support \
-            rsync xz-utils e2fsprogs dosfstools
-
-      - name: 生成 arm64 rootfs（本机 x86_64 → qemu 二阶段）
-        run: sudo -E scripts/debootstrap-rootfs.sh
+          sudo apt-get install -y rsync xz-utils e2fsprogs dosfstools
+          docker version --format '{{.Server.Version}}' || true
 
       - name: 取面板（release；失败则回退到源码构建）
         env:
@@ -87,19 +85,19 @@ jobs:
           fi
           ls -l build/h5000m-mt5700-panel-*.tar.gz
 
-      - name: 配置 rootfs（装包 + 板级 overlay + 面板）
+      - name: 构建 rootfs（arm64 原生 docker + 面板）
         run: |
           TARBALL="$(ls -t build/h5000m-mt5700-panel-*.tar.gz 2>/dev/null | head -1 || true)"
           echo "PANEL_TARBALL=$TARBALL"
-          sudo -E env PANEL_TARBALL="$TARBALL" scripts/build-rootfs.sh
+          PANEL_TARBALL="$TARBALL" scripts/build-rootfs-docker.sh
 
       - name: 打包 rootfs.ext4
         run: |
           truncate -s 805306368 rootfs.ext4
-          sudo mkfs.ext4 -F -L rootfs -d rootfs rootfs.ext4
+          mkfs.ext4 -F -L rootfs -d rootfs rootfs.ext4
           e2fsck -fn rootfs.ext4 || true
           sha256sum rootfs.ext4 > rootfs.ext4.sha256
-          sudo tar czf rootfs-overlay-$(date +%Y%m%d).tar.gz -C rootfs .
+          tar czf rootfs-overlay-$(date +%Y%m%d).tar.gz -C rootfs .
           ls -lh rootfs.ext4 rootfs-overlay-*.tar.gz
 
       - uses: actions/upload-artifact@v4
@@ -129,13 +127,15 @@ jobs:
             python3 python3-setuptools python3-yaml rsync unzip zlib1g-dev \
             file wget cpio time quilt
 
-      - name: 恢复 BSP 缓存（dl + staging_dir + feeds）
+      - name: 恢复 BSP 缓存（dl + staging_dir + feeds + build_dir）
         uses: actions/cache/restore@v4
         with:
           path: |
             bsp/dl
             bsp/staging_dir
             bsp/feeds
+            bsp/build_dir/host
+            bsp/build_dir/toolchain-*
           # key 不包含 patches/config：改动补丁后仍能复用 1.5~2 小时的工具链构建
           key: bsp-${{ env.KVER }}-${{ github.run_id }}
           restore-keys: |
@@ -150,7 +150,7 @@ jobs:
       - name: 主机工具 + 交叉工具链
         run: make toolchain JOBS=$(nproc)
 
-      - name: 保存 BSP 缓存（失败也保存，便于下次只重编内核）
+      - name: 保存 BSP 缓存（dl/staging_dir/feeds/build_dir；失败也保存）
         if: always()
         uses: actions/cache/save@v4
         with:
@@ -158,6 +158,8 @@ jobs:
             bsp/dl
             bsp/staging_dir
             bsp/feeds
+            bsp/build_dir/host
+            bsp/build_dir/toolchain-*
           key: bsp-${{ env.KVER }}-${{ github.run_id }}
 
       - name: 构建内核 / 模块 / DTB

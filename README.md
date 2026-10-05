@@ -65,7 +65,8 @@ Debian 13 arm64 rootfs（debootstrap）
 * 构建内核：Docker/Linux（**不要**在 macOS 上直接构建 OpenWrt）、`git`、OpenWrt 的主机构建依赖
   （`build-essential flex bison gawk gettext libncurses-dev libssl-dev python3 rsync unzip wget file`）
 * 打包镜像：`u-boot-tools`（`mkimage`/`fdtput`）、`device-tree-compiler`、`e2fsprogs`
-* rootfs：`debootstrap`，交叉架构还需 `qemu-user-static`
+* rootfs：**arm64 主机 + Docker**（推荐，分钟级）；或在任意架构上用 `debootstrap`
+  （交叉架构需 `qemu-user-static`，装 200MB 包要 1~1.5 小时）
 
 ### 3.2 完整步骤（在 Linux/容器里，需 root）
 
@@ -83,7 +84,8 @@ make kernel JOBS=$(nproc)
 make panel
 
 # Debian rootfs
-make rootfs       # = debootstrap-rootfs.sh + build-rootfs.sh
+make rootfs       # arm64 主机：走 Docker（scripts/build-rootfs-docker.sh，3~6 分钟）
+#   非 arm64 主机：回落到 debootstrap + qemu（scripts/debootstrap-rootfs.sh + build-rootfs.sh，很慢）
 #   带内核模块与 firmware（推荐，从 BSP 的完整 image 构建或原厂固件里取）：
 #   OWROOT=/path/to/openwrt-rootfs make rootfs
 
@@ -125,8 +127,8 @@ make -j$(nproc)                     # 完整 image（很久）
 | Job | 触发条件 | 作用 | 耗时 |
 | --- | --- | --- | --- |
 | `check` | 总是 | 补丁校验 + 关键配置回归检查 | ~2 min |
-| `rootfs` | 非 PR | debootstrap arm64（x86_64 runner 用 qemu 二阶段）→ 装包 → overlay（+面板）→ `rootfs.ext4` | ~15–40 min |
-| `kernel` | tag 或手动勾选 `build_kernel` | feeds → 主机工具/交叉工具链（**单独一步并缓存**）→ 内核 + 模块 + DTB | 首次 ~1.5–2 h，有缓存 ~10–20 min |
+| `rootfs` | 非 PR | **arm64 runner + arm64 Docker**（原生 apt）→ 板级配置 → overlay（+面板）→ `rootfs.ext4` | **~4–8 min**（原来 x86_64+qemu 要 1~1.5 h） |
+| `kernel` | tag 或手动勾选 `build_kernel` | feeds → 主机工具/交叉工具链（**单独一步并缓存 `dl`+`staging_dir`+`build_dir/host`+`build_dir/toolchain-*`**）→ 内核 + 模块 + DTB + 无线栈 | 首次 ~1.5–2 h，缓存命中后 ~10–20 min |
 | `package` | tag 或手动勾选 `build_kernel` | 装入内核模块 + `depmod` → `package-image.sh` → `.bin`；tag 时发 Release | ~5 min |
 
 ### 4.1 与 A 仓库的关系（**单向、无触发**）
@@ -156,7 +158,18 @@ make -j$(nproc)                     # 完整 image（很久）
 git tag v1.0.0 && git push origin v1.0.0
 ```
 
-### 4.3 内核构建为什么要先装 feeds
+### 4.3 速度相关
+
+* **rootfs**：`rootfs` job 跑在 `ubuntu-24.04-arm` 上，用 `scripts/build-rootfs-docker.sh`
+  在 arm64 容器里装包（原生速度），再 `docker export` 成 rootfs 树 —— 不再需要 qemu 仿真。
+  本机（arm64）也可以用同一个脚本；非 arm64 主机才回落到 `debootstrap`。
+* **内核**：工具链那一步（`make toolchain/install`）是整个流程最慢的环节。缓存里除了
+  `bsp/dl`、`bsp/staging_dir`、`bsp/feeds`，还包含 **`bsp/build_dir/host` 与
+  `bsp/build_dir/toolchain-*`**（OpenWrt 的「已构建」标记就在里面）—— 少了它们，
+  每次都会重编 1.5 小时的工具链。缓存 key 不随补丁变化，失败也会保存（`if: always()`）。
+* 另外在 `config/bsp.config` 里关掉了 `CONFIG_GDB`（工具链里的 gdb 对构建无用）。
+
+### 4.4 内核构建为什么要先装 feeds
 
 CI 上首次跑内核构建曾失败：`target/linux failed to build`（18 秒即失败）。根因是
 **BSP 克隆后没有安装 feeds**，`.config` 与源码树不同步（日志里成片的

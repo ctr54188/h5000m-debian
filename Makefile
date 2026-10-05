@@ -27,11 +27,18 @@ toolchain: patches
 kernel: patches
 	scripts/build-kernel.sh $(JOBS)
 
-## Debian rootfs（debootstrap + 包 + overlay + 面板）
+## Debian rootfs：arm64 + docker（快，3~6 分钟）；否则回落 debootstrap+qemu（慢）
 rootfs:
-	scripts/debootstrap-rootfs.sh
-	PANEL_TARBALL="$$(ls -t build/h5000m-mt5700-panel-*.tar.gz 2>/dev/null | head -1)" \
-	OWROOT="$(OWROOT)" scripts/build-rootfs.sh
+	@if [ "$$(uname -m)" = "aarch64" ] && command -v docker >/dev/null 2>&1; then \
+		echo "== 使用 arm64 Docker 构建 rootfs"; \
+		PANEL_TARBALL="$$(ls -t build/h5000m-mt5700-panel-*.tar.gz 2>/dev/null | head -1)" \
+		OWROOT="$(OWROOT)" scripts/build-rootfs-docker.sh; \
+	else \
+		echo "== 回落 debootstrap + qemu（较慢）"; \
+		scripts/debootstrap-rootfs.sh; \
+		PANEL_TARBALL="$$(ls -t build/h5000m-mt5700-panel-*.tar.gz 2>/dev/null | head -1)" \
+		OWROOT="$(OWROOT)" scripts/build-rootfs.sh; \
+	fi
 
 ## 面板（从 h5000m-mt5700-panel 仓库 release 拉取）
 panel:
