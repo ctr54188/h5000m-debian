@@ -1,5 +1,5 @@
 diff --git a/target/linux/generic/config-6.12 b/target/linux/generic/config-6.12
-index 56189adee..01752a7eb 100644
+index 56189adee..c064d0305 100644
 --- a/target/linux/generic/config-6.12
 +++ b/target/linux/generic/config-6.12
 @@ -876,7 +876,7 @@ CONFIG_CC_OPTIMIZE_FOR_PERFORMANCE=y
@@ -30,7 +30,7 @@ index 56189adee..01752a7eb 100644
  # CONFIG_MAC80211_MESSAGE_TRACING is not set
  CONFIG_MAC80211_STA_HASH_MAX_SIZE=0
  # CONFIG_MACB is not set
-@@ -7836,3 +7833,30 @@ CONFIG_ZRAM_DEF_COMP="unset-value"
+@@ -7836,3 +7833,31 @@ CONFIG_ZRAM_DEF_COMP="unset-value"
  # CONFIG_ZSMALLOC is not set
  CONFIG_ZSMALLOC_CHAIN_SIZE=8
  # CONFIG_ZSWAP is not set
@@ -61,3 +61,4 @@ index 56189adee..01752a7eb 100644
 +CONFIG_USB_SERIAL=m
 +# CONFIG_USB_SERIAL_GENERIC is not set
 +CONFIG_USB_SERIAL_OPTION=m
++CONFIG_PAGE_POOL_STATS=y

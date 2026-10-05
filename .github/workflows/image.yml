@@ -136,6 +136,7 @@ jobs:
             out/kernel/kernel.config
             out/kernel/modules-*.tar.gz
             out/kernel/modules.list
+            out/kernel/firmware.tar.gz
           if-no-files-found: error
 
   # ---------------------------------------------------------------- 打包刷机镜像
@@ -167,11 +168,21 @@ jobs:
           sudo tar xzf rootfs-artifact/rootfs-overlay-*.tar.gz -C rootfs
           sudo chown -R "$(id -u):$(id -g)" rootfs
 
-      - name: 装入内核模块并生成 modules.dep
+      - name: 装入内核模块与固件，生成 modules.dep
         run: |
           sudo mkdir -p rootfs/lib/modules/${{ env.KVER }}
           sudo tar xzf out/kernel/modules-${{ env.KVER }}.tar.gz -C rootfs/lib/modules/${{ env.KVER }}
           echo "模块数：$(find rootfs/lib/modules/${{ env.KVER }} -name '*.ko' | wc -l)"
+          for m in mt7996e mt76 cfg80211 mac80211 cdc_ncm option qmi_wwan pwm-fan; do
+            find rootfs/lib/modules/${{ env.KVER }} -name "$m.ko" | grep -q . && echo "  ✓ $m.ko" || echo "  ✗ 缺 $m.ko"
+          done
+          if [ -f out/kernel/firmware.tar.gz ]; then
+            sudo mkdir -p rootfs/lib/firmware
+            sudo tar xzf out/kernel/firmware.tar.gz -C rootfs/lib/firmware
+            echo "固件：$(find rootfs/lib/firmware -type f | wc -l) 个文件"
+            ls rootfs/lib/firmware/mediatek/mt7996/mt7992_eeprom_23_2i5i.bin >/dev/null \
+              && echo "  ✓ mt7992_eeprom_23_2i5i.bin（驱动实际选中的校准变体）" || echo "  ✗ 缺 MT7992 校准固件"
+          fi
           sudo depmod -b "$PWD/rootfs" ${{ env.KVER }} 2>&1 | tail -3 || true
           ls rootfs/lib/modules/${{ env.KVER }}/modules.dep >/dev/null && echo "modules.dep 已生成"
 

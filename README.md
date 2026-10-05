@@ -278,7 +278,31 @@ docs/                      刷机说明、以太网 TX 逆向记录
 
 ---
 
-## 8. 许可
+## 9. 功能与修复清单（对照已验证镜像逐项核对）
+
+下表是「昨天在真机上验证过的功能」与「本仓库里对应文件/补丁」的映射。
+审计方式：把已验证镜像的 rootfs（`/build/rootfs`）与本仓库 `rootfs-overlay/` 逐文件对比
+（**25/27 逐字节一致**，差异只有本次有意把 WED 改成关闭），内核侧用「从源码重新生成配置」
+与已验证内核 `.config` 对比（**仅剩 2 项无关差异**，已补），模块用文件名全量比对
+（已验证 118 个模块 **0 缺失**，本仓库可产出 140 个）。
+
+| 功能 | 仓库中的位置 |
+| --- | --- |
+| **有线：链路 / TX / RX** | `patches/kernel-997-*.patch`（TX 完成中断注册到全部 8 条线 + RX done mask）<br>`patches/bsp/0003-*.patch`（DTS 列全 8 条中断 + `interrupt-names = "fe0".."fe3"`） |
+| **有线：DHCP** | `rootfs-overlay/etc/systemd/network/10-eth0.network`、`11-eth1.network`（`DHCP=yes` + `RouteMetric=100`） |
+| **有线：HNAT/PPE 硬件卸载** | `rootfs-overlay/etc/nftables.conf` → `table inet hwnat { flowtable f { devices = { eth0, eth1 }; flags offload } }`（`flags offload` 才是打开 PPE 的开关；表名不用保留字 `offload`） |
+| **双频 AP（2.4G ch6 / 5G ch149）** | `etc/hostapd/ap24.conf`（`hw_mode=g channel=6`）、`ap5g.conf`（`hw_mode=a channel=149`）<br>`etc/systemd/system/h5000m-ap@.service` + `h5000m-ap@ap24/ap5g`（enable 见 `scripts/enable-units.sh`）<br>`usr/local/sbin/h5000m-wifi-vif.sh`（建 vif + **独立 MAC** + `iw reg set CN`）<br>`etc/systemd/network/{05-br0.netdev,07-br0.network,20-ap24,20-ap5g}.network`（`br0 192.168.77.1/24` + `DHCPServer=yes` + 公共 DNS）<br>`etc/systemd/network/99-no-altnames.link`（`AlternativeNamesPolicy=none`，避免 udev 别名 `ENOTUNIQ`） |
+| **AP 客户端上网（DHCP + NAT）** | `etc/nftables.conf` → `ip saddr 192.168.77.0/24 oifname != "br0" masquerade`（覆盖有线与 5G 出口）<br>NAT 写在**我们自己的** `/etc/nftables.conf`（`flush ruleset` 会清掉 networkd 的 IPMasquerade） |
+| **无线驱动** | `config/bsp.config` 选中 `kmod-mt76 / kmod-mt76-connac / kmod-mt7996e / kmod-mt7992-firmware / kmod-mt7992-23-firmware / kmod-mt7996-firmware(-common)`<br>`scripts/build-kernel.sh` 会编 `package/kernel/mt76` 并收集 `.ko` 与固件 |
+| **无线固件/校准** | 由 `kmod-mt7992*` 固件包提供（`mediatek/mt7996/mt7992_eeprom_23_2i5i.bin` = 驱动实际选中的变体），`scripts/build-kernel.sh` 产出 `firmware.tar.gz`，打包时装入 rootfs |
+| **无线 WED 关闭（结论）** | `etc/modprobe.d/mt7996e-wed.conf` → `options mt7996e wed_enable=0`（闭源厂商引擎不可移植，实测 attach 失败） |
+| **5G 上行（MT5700M USB）** | `patches/bsp/0001-*.patch`：`USB_USBNET / USB_NET_CDC_NCM / CDC_MBIM / QMI_WWAN / CDCETHER / USB_ACM / USB_WDM / USB_SERIAL_OPTION / USB_SERIAL_WWAN / MTK_T7XX / WWAN` 等<br>`etc/modules-load.d/usb-modem.conf`（`xhci-hcd xhci-plat-hcd xhci-mtk-hcd cdc-ncm cdc-mbim qmi_wwan option usb-storage`）<br>`etc/systemd/network/30-modem.network`（`Match Name=enx* eth2` + `RouteMetric=200`，有线 100 优先） |
+| **风扇温控** | `etc/modules-load.d/pwm-fan.conf`（`pwm-fan`）<br>内核：`CONFIG_PWM=y / CONFIG_SENSORS_PWM_FAN=m / CONFIG_THERMAL=y / CONFIG_MTK_THERMAL=y`（在可复现配置里，见审计）<br>DTS：`pwm-fan` 节点 + `cooling-levels`（BSP 板级 DTS） |
+| **eMMC 扩容 + 1G swap** | `usr/local/sbin/h5000m-firstboot.sh`（`/dev/disk/by-partlabel/rootfs` → `resize2fs`；`fallocate`/`dd` 1G + `mkswap` + 写 fstab）<br>`etc/systemd/system/h5000m-firstboot.service`（`ConditionPathExists=!/var/lib/h5000m-firstboot.done`）<br>`etc/fstab`（`PARTLABEL=rootfs /` + `/swapfile none swap sw`） |
+| **管理面板** | 见配套仓库 [h5000m-mt5700-panel](../h5000m-mt5700-panel)；带面板的 workflow 见 §4 |
+| **面板仅内网可达** | `etc/nftables.conf` → `table inet h5000m_mgmt`（5G 上行口 `enx*/wwan*/usb*` 丢弃 8181） |
+
+## 10. 许可
 
 * 内核补丁、设备树、BSP 配置片段：**GPL-2.0-only**（Linux 内核衍生）。
 * 本仓库的脚本与 rootfs overlay 配置：**GPL-2.0-only**（与镜像内 GPL 组件保持一致）。
