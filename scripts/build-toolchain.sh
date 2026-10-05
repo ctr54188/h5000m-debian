@@ -11,8 +11,22 @@ JOBS="${1:-$(nproc 2>/dev/null || sysctl -n hw.ncpu)}"
 [ -d "$BSP" ] || { echo "缺少 BSP：$BSP" >&2; exit 1; }
 "$ROOT/scripts/apply-bsp-patches.sh"
 cd "$BSP"
+
+# 失败时自动 -j1 V=s 重跑并打印最后 120 行，便于定位（CI 日志常被截断）
+run_step() {
+	local desc="$1"; shift
+	echo "== $desc"
+	if make -j"$JOBS" "$@"; then
+		return 0
+	fi
+	echo "!!! $desc 失败，用 -j1 V=s 重跑以定位错误（只打印最后 120 行）"
+	set +e
+	make -j1 V=s "$@" 2>&1 | tail -120
+	set -e
+	return 1
+}
 echo "== [0/5] 安装 feeds（缺 feeds 会导致 .config 与源码树不同步）"
-if [ ! -e "$BSP/feeds/luci" ] || [ ! -e "$BSP/feeds/packages" ]; then
+if [ ! -e "$BSP/feeds/luci" ] && [ ! -e "$BSP/feeds/packages" ]; then
 	./scripts/feeds update -a
 	./scripts/feeds install -a
 else

@@ -30,6 +30,11 @@ on:
   push:
     tags: [ 'v*' ]
 
+# 同一个 ref 同时只允许一个运行，避免「push 触发的 run」与「手动 dispatch」并发
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   KVER: '6.12.103'
   HEAVY: 'true'

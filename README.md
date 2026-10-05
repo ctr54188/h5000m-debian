@@ -177,6 +177,27 @@ CI 上首次跑内核构建曾失败：`target/linux failed to build`（18 秒�
 3. 镜像内 `rootfs` 固定 `805306368` 字节（768 MiB），与升级槽位一致；首次启动会
    自动扩容到整块 eMMC 并创建 1 G swap（`h5000m-firstboot.service`）。
 
+### 5.1.1 内核配置必须落在「config 片段」，不能用 kernel_menuconfig 改 build_dir
+
+**血泪教训**：早期验证版内核是用 `make kernel_menuconfig` 调出来的，那些选项只写进
+`build_dir/target-*/linux-*/linux-6.12.103/.config`（**生成文件**）。换到全新克隆
+（CI / 别人机器）时，OpenWrt 会从源码里的 config 片段重新生成内核配置：
+
+```
+target/linux/generic/config-6.12
+target/linux/mediatek/config-6.12
+target/linux/mediatek/filogic/config-6.12
++ OpenWrt .config 里的 CONFIG_KERNEL_* 覆盖
+```
+
+结果就是「昨天验证好的内核，今天新环境一编就少了 20 个符号」——实测少了
+`CONFIG_USB_USBNET / USB_NET_CDC_NCM / USB_NET_CDC_MBIM / USB_NET_QMI_WWAN /
+USB_ACM / USB_WDM / USB_RTL8153_ECM …`，也就是 **5G USB 模组要用的整条 USB 网络栈**。
+
+所以：**改内核配置一律写进 `patches/bsp/*config-6.12*.patch`**（本仓库已把那次丢失的
+选项全部补回），`make defconfig` 之后再核对一次；`scripts/check-patches.sh` 里也加了
+关键项回归检查（DEVTMPFS / DEVTMPFS_MOUNT / DEVTMPFS_SAFE / WWAN / MTK_T7XX / USB 等）。
+
 ### 5.2 内核 / 设备树
 
 * **`CONFIG_DEVTMPFS=y` 必须开**（`patches/bsp/0001-*`）：否则内核对 `/dev` 不做

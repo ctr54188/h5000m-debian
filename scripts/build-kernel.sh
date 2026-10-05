@@ -35,16 +35,41 @@ make defconfig
 
 echo "== [2/3] 内核 + DTB"
 run_step "[2/3] 内核 + DTB" target/linux/compile
-run_step "[2/3] 内核安装" target/linux/install
 echo "== [3/3] 内核模块"
 run_step "[3/3] 内核模块" package/kernel/linux/compile
-run_step "[3/3] 内核模块安装" package/kernel/linux/install
 
 mkdir -p "$OUT"
-BD="$(ls -d "$BSP"/build_dir/target-*/linux-*/linux-"$KVER" | head -1)"
+BD="$(ls -d "$BSP"/build_dir/target-*/linux-*/linux-"$KVER" 2>/dev/null | head -1 || true)"
 echo "== 收集产物（${BD}）"
 cp "$BD/arch/arm64/boot/Image" "$OUT/Image"
-find "$BD/arch/arm64/boot/dts" -name 'mt7987a-hiveton-h5000m.dtb' -exec cp {} "$OUT/board.dtb" \;
+# 板级 DTB 的取法（两级）：
+#   1) OpenWrt 会把 target/linux/mediatek/dts/*.dts 编成 build_dir/<target>/image-<name>.dtb
+#      —— 但只在设备 profile 被选中时才编，所以不一定存在；
+#   2) 兜底：直接用内核树里的 dtc 编我们自己的 DTS（等价于 OpenWrt 的那条命令）。
+DTB="$(ls "$BSP"/build_dir/target-*/linux-mediatek_filogic/image-*hiveton-h5000m*.dtb 2>/dev/null | head -1 || true)"
+if [ -z "$DTB" ]; then
+	echo "   未在 build_dir 找到板级 DTB，直接用内核 dtc 编译 target/linux/mediatek/dts/mt7987a-hiveton-h5000m.dts"
+	DTS="$BSP/target/linux/mediatek/dts/mt7987a-hiveton-h5000m.dts"
+	[ -f "$DTS" ] || { echo "!! 找不到 DTS：$DTS" >&2; exit 1; }
+	CPP="$(ls "$BSP"/staging_dir/toolchain-*/bin/*-openwrt-linux-musl-cpp 2>/dev/null | head -1 || true)"
+	[ -n "$CPP" ] || CPP="$(command -v cpp)"
+	"$CPP" -nostdinc -x assembler-with-cpp \
+		-I"$BD/arch/arm64/boot/dts/mediatek" -I"$BD/arch/arm64/boot/dts/mediatek/include" \
+		-I"$BD/include" -I"$BD/scripts/dtc/include-prefixes" \
+		-undef -D__DTS__ -o "$OUT/board.dtb.dts" "$DTS"
+	"$BD/scripts/dtc/dtc" -O dtb -i"$BSP/target/linux/mediatek/dts/" \
+		-Wno-interrupt_provider -Wno-unique_unit_address -Wno-unit_address_vs_reg \
+		-Wno-avoid_unnecessary_addr_size -Wno-alias_paths -Wno-graph_child_address \
+		-Wno-simple_bus_reg -@ -o "$OUT/board.dtb" "$OUT/board.dtb.dts"
+	rm -f "$OUT/board.dtb.dts"
+	DTB="$OUT/board.dtb"
+fi
+[ -n "$DTB" ] && [ -f "$DTB" ] || { echo "!! 没能得到板级 DTB" >&2; exit 1; }
+if [ "$(readlink -f "$DTB" 2>/dev/null || echo "$DTB")" != "$(readlink -f "$OUT/board.dtb" 2>/dev/null || echo "$OUT/board.dtb")" ]; then
+	cp -f "$DTB" "$OUT/board.dtb"
+fi
+echo "   DTB: $OUT/board.dtb ($(wc -c < "$OUT/board.dtb") B)"
+
 find "$BD" -name '*.ko' > "$OUT/modules.list"
 ( cd "$BD" && tar czf "$OUT/modules-${KVER}.tar.gz" $(sed "s|$BD/||" "$OUT/modules.list") )
 cp "$BD/.config" "$OUT/kernel.config"

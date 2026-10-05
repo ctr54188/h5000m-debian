@@ -1,5 +1,5 @@
 diff --git a/target/linux/mediatek/dts/mt7987.dtsi b/target/linux/mediatek/dts/mt7987.dtsi
-index 6a905603f..bf9b947a0 100644
+index 6a905603f..987571f65 100644
 --- a/target/linux/mediatek/dts/mt7987.dtsi
 +++ b/target/linux/mediatek/dts/mt7987.dtsi
 @@ -1075,10 +1075,15 @@
@@ -19,8 +19,23 @@ index 6a905603f..bf9b947a0 100644
  			clocks = <&ethsys CLK_ETHDMA_FE_EN>,
  				 <&ethsys CLK_ETHDMA_GP2_EN>,
  				 <&ethsys CLK_ETHDMA_GP1_EN>,
+@@ -1131,6 +1136,14 @@
+ 				reg = <2>;
+ 				pcs-handle = <&sgmiipcs1>;
+ 				status = "disabled";
++				/* 内部 1G 链路（与已验证镜像的 DTB 一致） */
++				phy-mode = "internal";
++
++				fixed-link {
++					speed = <1000>;
++					full-duplex;
++					pause;
++				};
+ 			};
+ 
+ 			mdio: mdio-bus {
 diff --git a/target/linux/mediatek/dts/mt7987a-hiveton-h5000m.dts b/target/linux/mediatek/dts/mt7987a-hiveton-h5000m.dts
-index 7c4ff8a1a..4c413ccf0 100644
+index 7c4ff8a1a..d098360d3 100644
 --- a/target/linux/mediatek/dts/mt7987a-hiveton-h5000m.dts
 +++ b/target/linux/mediatek/dts/mt7987a-hiveton-h5000m.dts
 @@ -100,12 +100,14 @@
@@ -38,3 +53,14 @@ index 7c4ff8a1a..4c413ccf0 100644
  	phy-mode = "internal";
  	phy-handle = <&phy1>;
  	status = "okay";
+@@ -210,7 +212,9 @@
+ };
+ 
+ &pcie1 {
+-	status = "disabled";
++	/* 与已验证镜像的 DTB 保持一致（该槽位未挂设备，启用无副作用；
++	   如需精简可改回 disabled） */
++	status = "okay";
+ };
+ 
+ &pio {

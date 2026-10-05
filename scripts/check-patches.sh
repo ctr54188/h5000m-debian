@@ -17,7 +17,7 @@ fail=0
 echo "== [1/4] 取 BSP 被我们改动的文件（pin ${BSP_COMMIT}）"
 mkdir -p bsp
 fetch() { # fetch <仓库内路径> <本地路径>
-	if [ -s "$2" ]; then echo "   复用 $2"; return; fi
+	# 每次都重新取（4 个小文件，几十 KB）：补丁更新后不能拿旧的「已打补丁」副本做校验
 	mkdir -p "$(dirname "$2")"        # curl -o 不会建父目录，缺目录会报
 	                                  # "curl: (56) Failure writing output to destination"
 	curl -fsSL "$BSP_RAW/$1" -o "$2" || { echo "!! 取不到 $1"; return 1; }
@@ -30,7 +30,10 @@ fetch target/linux/mediatek/dts/mt7987a-hiveton-h5000m.dts bsp/target/linux/medi
 
 echo "== [2/4] 校验 patches/bsp/*.patch"
 for p in "$ROOT"/patches/bsp/*.patch; do
-	if patch -p1 --dry-run -d bsp < "$p" >/dev/null 2>&1; then
+	# 幂等：build/check 会缓存 BSP 文件，第二次运行时补丁可能已应用
+	if patch -p1 -R --dry-run -d bsp < "$p" >/dev/null 2>&1; then
+		echo "   OK   $(basename "$p")（已应用，跳过）"
+	elif patch -p1 --dry-run -d bsp < "$p" >/dev/null 2>&1; then
 		echo "   OK   $(basename "$p")"
 		patch -p1 -d bsp < "$p" >/dev/null 2>&1
 	else
@@ -77,8 +80,14 @@ check_cfg "$ROOT/config/bsp.config" '^CONFIG_KERNEL_DEVTMPFS_MOUNT=y'
 check_cfg "$ROOT/patches/bsp/0001-generic-config-6.12-devtmpfs-wwan-wifi.patch" '^\+CONFIG_DEVTMPFS=y'
 check_cfg "$ROOT/patches/bsp/0001-generic-config-6.12-devtmpfs-wwan-wifi.patch" '^\+CONFIG_DEVTMPFS_MOUNT=y'
 check_cfg "$ROOT/patches/bsp/0001-generic-config-6.12-devtmpfs-wwan-wifi.patch" '^\+CONFIG_MTK_T7XX=y'
+# DEVTMPFS_SAFE 必须显式给出，否则它是「新符号」→ 内核 oldconfig 交互提问 → 构建失败
+check_cfg "$ROOT/patches/bsp/0001-generic-config-6.12-devtmpfs-wwan-wifi.patch" '^\+# CONFIG_DEVTMPFS_SAFE is not set'
 check_cfg "$ROOT/patches/bsp/0003-dts-eth-irqs-and-board-mac.patch" 'interrupt-names = "fe0", "fe1", "fe2", "fe3"'
 check_cfg "$ROOT/patches/bsp/0003-dts-eth-irqs-and-board-mac.patch" 'GIC_SPI 197'
+# 与已验证镜像 DTB 对齐的两处（mac@2 内部 1G 链路、pcie1 启用）
+check_cfg "$ROOT/patches/bsp/0003-dts-eth-irqs-and-board-mac.patch" 'fixed-link'
+check_cfg "$ROOT/patches/bsp/0003-dts-eth-irqs-and-board-mac.patch" 'speed = <1000>'
+check_cfg "$ROOT/patches/bsp/0003-dts-eth-irqs-and-board-mac.patch" 'mac-address = \[0e c7 2f 5b 6a 84\]'
 check_cfg "$ROOT/patches/kernel-997-h5000m-mt7987-eth-fixes.patch" 'mtk_handle_irq_fe'
 
 echo
