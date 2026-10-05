@@ -84,8 +84,9 @@ echo "== 归一化属主/权限，并修补 Docker 绑定挂载导致的空文�
 #    容器内写的是挂载点，export 出来是空文件 → 这里重新写入。
 SUDO=""; [ "$(id -u)" != 0 ] && command -v sudo >/dev/null && SUDO=sudo
 $SUDO chown -R 0:0 "$R"
-printf 'h5000m\n' > "$R/etc/hostname.tmp" && $SUDO mv "$R/etc/hostname.tmp" "$R/etc/hostname"
-printf '127.0.0.1\tlocalhost\n127.0.1.1\th5000m\n::1\t\tlocalhost ip6-localhost ip6-loopback\n' > "$R/etc/hosts.tmp" && $SUDO mv "$R/etc/hosts.tmp" "$R/etc/hosts"
+# 注意：chown 之后 /etc 归 root，后续写入必须也用 $SUDO（重定向是在当前用户下执行的）
+$SUDO bash -c "printf 'h5000m\n' > '$R/etc/hostname'"
+$SUDO bash -c "printf '127.0.0.1\tlocalhost\n127.0.1.1\th5000m\n::1\t\tlocalhost ip6-localhost ip6-loopback\n' > '$R/etc/hosts'"
 $SUDO rm -f "$R/etc/resolv.conf"
 $SUDO ln -sf /run/systemd/resolve/stub-resolv.conf "$R/etc/resolv.conf"
 $SUDO chmod 0644 "$R/etc/hostname" "$R/etc/hosts"
