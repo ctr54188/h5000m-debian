@@ -33,7 +33,7 @@ chrony zstd xz-utils file"
 cleanup() { docker rm -f "$C" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
-echo "== [1/6] 启动容器（$BASE_IMAGE / $PLATFORM）"
+echo "== [1/6] 启动容器（$BASE_IMAGE / ${PLATFORM}）"
 cleanup
 docker run -d --name "$C" --platform "$PLATFORM" "$BASE_IMAGE" sleep infinity >/dev/null
 echo "   容器架构: $(docker exec "$C" uname -m)"
@@ -105,4 +105,4 @@ else
 	echo "   （未提供 OWROOT；模块/固件由 CI 的 package job 从内核产物装入）"
 fi
 [ -f "$R/etc/resolv.conf" ] || ln -sf /run/systemd/resolve/stub-resolv.conf "$R/etc/resolv.conf"
-echo "== 完成：$R（$(du -sh "$R" | cut -f1)）"
+echo "== 完成：${R}（$(du -sh "$R" | cut -f1)）"

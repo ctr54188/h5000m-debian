@@ -56,7 +56,7 @@ restart_later() {
 	if command -v systemd-run >/dev/null 2>&1; then
 		systemd-run --on-active=2 --unit=h5000m-ap-restart-$$ \
 			systemctl restart "$UNIT" >/dev/null 2>&1
-		echo "  已在 2 秒后重启 $UNIT（Wi-Fi 会短暂断开，几秒后自动重连）"
+		echo "  已在 2 秒后重启 ${UNIT}（Wi-Fi 会短暂断开，几秒后自动重连）"
 	else
 		echo "  立即重启 $UNIT"
 		systemctl restart "$UNIT"
@@ -90,7 +90,7 @@ case "${1:-}" in
 		echo "已从 $BAK 恢复配置"
 		restart_later
 	else
-		echo "没有备份文件 $BAK，无法回滚" >&2
+		echo "没有备份文件 ${BAK}，无法回滚" >&2
 		exit 1
 	fi
 	exit 0
@@ -106,7 +106,7 @@ case "${1:-}" in
 	;;
 esac
 
-[ -f "$CONF" ] || { echo "找不到 $CONF（这台设备的 5GHz AP 配置路径不对？）" >&2; exit 1; }
+[ -f "$CONF" ] || { echo "找不到 ${CONF}（这台设备的 5GHz AP 配置路径不对？）" >&2; exit 1; }
 [ -f "$BAK" ] || { cp "$CONF" "$BAK"; echo "已备份原配置 → $BAK"; }
 
 write_conf

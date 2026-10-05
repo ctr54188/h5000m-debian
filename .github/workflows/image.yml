@@ -175,7 +175,7 @@ jobs:
         run: |
           ls -l out/kernel || true
           for f in Image board.dtb; do
-            test -s "out/kernel/$f" || { echo "::error::内核 artifact 里缺少 $f（内核 job 没产出？）"; exit 1; }
+            test -s "out/kernel/$f" || { echo "::error::内核 artifact 里缺少 ${f}（内核 job 没产出？）"; exit 1; }
           done
 
       - name: 还原 rootfs 树

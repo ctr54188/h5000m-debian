@@ -65,7 +65,7 @@ link_lib() { # link_lib <单元名> <目标目录>
 	if [ -f "$R$src" ]; then
 		ln -sf "$src" "$d/$u"
 	else
-		echo "   （跳过 $u：未安装）"
+		echo "   （跳过 ${u}：未安装）"
 	fi
 }
 for u in ssh.service systemd-networkd.service systemd-resolved.service chrony.service \
@@ -95,7 +95,7 @@ for inst in h5000m-ap@ap24.service h5000m-ap@ap5g.service; do
 	elif [ -f "$R/etc/systemd/system/$inst" ]; then
 		ln -sf "/etc/systemd/system/$inst" "$MU/$inst"
 	else
-		echo "   （跳过 $inst：单元未铺开）"
+		echo "   （跳过 ${inst}：单元未铺开）"
 	fi
 done
 echo "   multi-user.target.wants:"; ls "$MU" | sed 's/^/     /'
