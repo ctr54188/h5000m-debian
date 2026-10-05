@@ -1,15 +1,14 @@
 #!/usr/bin/env bash
-# 用 arm64 原生 Docker 构建 Debian rootfs。
+# 用 arm64 原生 Docker 构建 Debian rootfs（比 x86_64 + qemu 快一个数量级）。
 #
-# 为什么：原来在 x86_64 runner 上跑 `debootstrap --foreign` + qemu 二阶段 + chroot apt，
-# 仿真下装 200MB 包要 1~1.5 小时。改成「arm64 runner + arm64 容器」后 apt 是原生速度，
-# 整步约 3~6 分钟。
+# 思路：所有会改文件系统的步骤都在容器里做（容器内是 root，无需 sudo、无权限问题），
+#       最后 `docker export` 成 rootfs 树；导出后只做只读操作（或按需 chown）。
 #
 # 用法：
-#   scripts/build-rootfs-docker.sh                      # 用 debian:trixie
-#   BASE_IMAGE=debian:trixie-slim ...                   # 自定义基础镜像
-#   PANEL_TARBALL=/path/panel.tar.gz ...                # 顺便装面板
-#   OWROOT=/path/openwrt-rootfs ...                     # 顺便装内核模块与固件
+#   scripts/build-rootfs-docker.sh
+#   BASE_IMAGE=debian:trixie-slim scripts/build-rootfs-docker.sh
+#   PANEL_TARBALL=/path/h5000m-mt5700-panel-*.tar.gz scripts/build-rootfs-docker.sh
+#   OWROOT=/path/openwrt-rootfs scripts/build-rootfs-docker.sh   # 附带内核模块/firmware
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -31,16 +30,34 @@ usbutils pciutils \
 iw wireless-regdb wpasupplicant hostapd iperf3 \
 chrony zstd xz-utils file"
 
+cleanup() { docker rm -f "$C" >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+
 echo "== [1/6] 启动容器（$BASE_IMAGE / $PLATFORM）"
-docker rm -f "$C" >/dev/null 2>&1 || true
+cleanup
 docker run -d --name "$C" --platform "$PLATFORM" "$BASE_IMAGE" sleep infinity >/dev/null
-docker exec "$C" uname -m | sed 's/^/   容器架构: /'
+echo "   容器架构: $(docker exec "$C" uname -m)"
 
 echo "== [2/6] 安装软件包（原生速度）"
 docker exec "$C" bash -c "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends $PKGS"
 docker exec "$C" bash -c 'apt-get -qq clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/*'
 
-echo "== [3/6] 导出 rootfs"
+echo "== [3/6] 板级 overlay + 面板（必须在板级配置之前铺好）"
+docker cp "$ROOT/rootfs-overlay/." "$C:/"
+if [ -n "$PANEL_TARBALL" ] && [ -f "$PANEL_TARBALL" ]; then
+	docker cp "$PANEL_TARBALL" "$C:/tmp/panel.tgz"
+	docker exec "$C" tar xzf /tmp/panel.tgz -C / && docker exec "$C" rm -f /tmp/panel.tgz
+	echo "   面板：$(basename "$PANEL_TARBALL")"
+else
+	echo "   （未提供 PANEL_TARBALL，跳过面板）"
+fi
+docker exec "$C" bash -c 'chmod 0755 /usr/local/sbin/h5000m-* 2>/dev/null || true'
+
+echo "== [4/6] 板级配置（主机名/用户/静态 /dev/串口/启用 systemd 单元）"
+docker cp "$ROOT/scripts/rootfs-board-config.sh" "$C:/tmp/board-config.sh"
+docker exec -e KVER="$KVER" "$C" bash /tmp/board-config.sh | sed 's/^/   /'
+
+echo "== [5/6] 导出 rootfs"
 mkdir -p "$ROOT/build"
 docker export "$C" -o "$ROOT/build/rootfs.tar"
 rm -rf "$R"; mkdir -p "$R"
@@ -48,29 +65,19 @@ tar xf "$ROOT/build/rootfs.tar" -C "$R"
 rm -f "$ROOT/build/rootfs.tar"
 echo "   $(du -sh "$R" | cut -f1) → $R"
 
-echo "== [4/6] 板级 overlay + 面板（必须先铺，板级配置才能启用这些单元）"
-cp -a "$ROOT/rootfs-overlay/." "$R/"
-chmod 0755 "$R/usr/local/sbin/"h5000m-* 2>/dev/null || true
-if [ -n "$PANEL_TARBALL" ] && [ -f "$PANEL_TARBALL" ]; then
-	tar xzf "$PANEL_TARBALL" -C "$R"
-	echo "   面板：$(basename "$PANEL_TARBALL")"
-else
-	echo "   （未提供 PANEL_TARBALL，跳过面板）"
-fi
-
-echo "== [5/6] 板级配置（主机名/用户/静态 /dev/串口/启用 systemd 单元）"
-docker cp "$ROOT/scripts/rootfs-board-config.sh" "$C:/tmp/board-config.sh" 2>/dev/null || true
-# 直接对导出后的树做配置（不需要再进容器）：board-config 支持 PREFIX 前缀
-PREFIX="$R/" KVER="$KVER" bash "$ROOT/scripts/rootfs-board-config.sh" | sed 's/^/   /'
-
 echo "== [6/6] 内核模块 / 固件（可选，来自 OWROOT）"
-if [ -n "$OWROOT" ] && [ -d "$OWROOT/lib/modules/$KVER" ]; then
-	mkdir -p "$R/lib/modules"; cp -a "$OWROOT/lib/modules/$KVER" "$R/lib/modules/"
-fi
-if [ -n "$OWROOT" ] && [ -d "$OWROOT/lib/firmware" ]; then
-	mkdir -p "$R/lib/firmware"
-	cp -a --remove-destination "$OWROOT/lib/firmware/." "$R/lib/firmware/" 2>/dev/null || true
+if [ -n "$OWROOT" ]; then
+	sudo=""; [ "$(id -u)" != 0 ] && command -v sudo >/dev/null && sudo=sudo
+	if [ -d "$OWROOT/lib/modules/$KVER" ]; then
+		$sudo mkdir -p "$R/lib/modules"; $sudo cp -a "$OWROOT/lib/modules/$KVER" "$R/lib/modules/"
+		echo "   模块：$(find "$R/lib/modules/$KVER" -name '*.ko' | wc -l) 个"
+	fi
+	if [ -d "$OWROOT/lib/firmware" ]; then
+		$sudo mkdir -p "$R/lib/firmware"
+		$sudo cp -a --remove-destination "$OWROOT/lib/firmware/." "$R/lib/firmware/" 2>/dev/null || true
+	fi
+else
+	echo "   （未提供 OWROOT；模块/固件由 CI 的 package job 从内核产物装入）"
 fi
 [ -f "$R/etc/resolv.conf" ] || ln -sf /run/systemd/resolve/stub-resolv.conf "$R/etc/resolv.conf"
-docker rm -f "$C" >/dev/null 2>&1 || true
 echo "== 完成：$R（$(du -sh "$R" | cut -f1)）"
