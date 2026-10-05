@@ -46,6 +46,7 @@ chroot "$R" apt-get -o Acquire::ForceIPv4=true install -y -qq --no-install-recom
 	curl wget ca-certificates rsync \
 	usbutils pciutils \
 	iw wireless-regdb wpasupplicant hostapd \
+	iperf3 \
 	chrony zstd xz-utils file
 rm -f "$R/usr/sbin/policy-rc.d"
 
