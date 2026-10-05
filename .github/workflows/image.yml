@@ -127,6 +127,13 @@ jobs:
       - name: 构建内核 / 模块 / DTB
         run: make kernel JOBS=$(nproc)
 
+      - name: 校验内核产物齐全（缺一即失败）
+        run: |
+          ls -l out/kernel
+          for f in Image board.dtb modules-${{ env.KVER }}.tar.gz modules.list; do
+            test -s "out/kernel/$f" || { echo "::error::缺少 out/kernel/$f"; exit 1; }
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: kernel-mt7987-h5000m
@@ -162,6 +169,13 @@ jobs:
           name: debian-rootfs-arm64
           path: rootfs-artifact
         # rootfs.ext4 用作 source 太慢；这里直接解 rootfs 树
+      - name: 确认下载到的内核产物
+        run: |
+          ls -l out/kernel || true
+          for f in Image board.dtb; do
+            test -s "out/kernel/$f" || { echo "::error::内核 artifact 里缺少 $f（内核 job 没产出？）"; exit 1; }
+          done
+
       - name: 还原 rootfs 树
         run: |
           mkdir -p rootfs

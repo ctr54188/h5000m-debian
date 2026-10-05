@@ -52,6 +52,34 @@ BD="$(ls -d "$BSP"/build_dir/target-*/linux-*/linux-"$KVER" 2>/dev/null | head -
 [ -n "$BD" ] || { echo "!! 找不到内核构建目录" >&2; exit 1; }
 cp "$BD/arch/arm64/boot/Image" "$OUT/Image"
 
+# ---- 板级 DTB（两级取法）
+#   1) OpenWrt 会把 target/linux/mediatek/dts/*.dts 编成 build_dir/<target>/image-<name>.dtb
+#      —— 但只有设备 profile 被选中时才编，所以不一定存在；
+#   2) 兜底：直接用内核树里的 dtc 编我们自己的 DTS（等价于 OpenWrt 的那条命令）。
+DTB="$(ls "$BSP"/build_dir/target-*/linux-mediatek_filogic/image-*hiveton-h5000m*.dtb 2>/dev/null | head -1 || true)"
+if [ -z "$DTB" ]; then
+	echo "   未在 build_dir 找到板级 DTB，改用内核 dtc 直接编译 target/linux/mediatek/dts/mt7987a-hiveton-h5000m.dts"
+	DTS="$BSP/target/linux/mediatek/dts/mt7987a-hiveton-h5000m.dts"
+	[ -f "$DTS" ] || { echo "!! 找不到 DTS：$DTS" >&2; exit 1; }
+	CPP="$(ls "$BSP"/staging_dir/toolchain-*/bin/*-openwrt-linux-musl-cpp 2>/dev/null | head -1 || true)"
+	[ -n "$CPP" ] || CPP="$(command -v cpp)"
+	[ -n "$CPP" ] || { echo "!! 找不到 C 预处理器（cpp）" >&2; exit 1; }
+	"$CPP" -nostdinc -x assembler-with-cpp \
+		-I"$BD/arch/arm64/boot/dts/mediatek" -I"$BD/arch/arm64/boot/dts/mediatek/include" \
+		-I"$BD/include" -I"$BD/scripts/dtc/include-prefixes" \
+		-undef -D__DTS__ -o "$OUT/board.dtb.dts" "$DTS"
+	"$BD/scripts/dtc/dtc" -O dtb -i"$BSP/target/linux/mediatek/dts/" \
+		-Wno-interrupt_provider -Wno-unique_unit_address -Wno-unit_address_vs_reg \
+		-Wno-avoid_unnecessary_addr_size -Wno-alias_paths -Wno-graph_child_address \
+		-Wno-simple_bus_reg -@ -o "$OUT/board.dtb" "$OUT/board.dtb.dts"
+	rm -f "$OUT/board.dtb.dts"
+	DTB="$OUT/board.dtb"
+fi
+if [ "$(readlink -f "$DTB" 2>/dev/null || echo "$DTB")" != "$(readlink -f "$OUT/board.dtb" 2>/dev/null || echo "$OUT/board.dtb")" ]; then
+	cp -f "$DTB" "$OUT/board.dtb"
+fi
+echo "   板级 DTB：$OUT/board.dtb ($(wc -c < "$OUT/board.dtb") 字节)"
+
 # ---- 模块：内核内建 + kmod 包（.pkgdir 是每个包的安装布局，compile 后即存在）
 # 设备上模块是平铺的（/lib/modules/<kver>/<name>.ko），与已验证镜像一致
 MODDIR="$OUT/.mods/lib/modules/$KVER"
@@ -91,6 +119,13 @@ else
 fi
 rm -rf "$FW"
 
-ls -lh "$OUT" | sed -n '2,9p'
+# ---- 产物完整性硬校验（缺任何一项都直接失败，别让残缺 artifact 静默上传）
+missing=0
+for f in Image board.dtb "modules-${KVER}.tar.gz" modules.list; do
+	if [ ! -s "$OUT/$f" ]; then echo "!! 缺少产物：out/kernel/$f" >&2; missing=1; fi
+done
+[ -s "$OUT/firmware.tar.gz" ] || echo "   （提示：没有 firmware.tar.gz，Wi-Fi 固件将缺失）" >&2
+[ "$missing" = 0 ] || exit 1
+ls -lh "$OUT" | sed -n '2,12p'
 echo "模块数：$(wc -l < "$OUT/modules.list")"
 echo "提示：/lib/firmware 不在内核产物里，可用 OWROOT=<openwrt-rootfs> 传给 scripts/build-rootfs.sh"
