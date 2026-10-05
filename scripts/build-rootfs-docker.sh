@@ -20,7 +20,7 @@ C="${CONTAINER_NAME:-h5000m-rootfs-build}"
 PANEL_TARBALL="${PANEL_TARBALL:-}"
 OWROOT="${OWROOT:-}"
 
-PKGS="systemd systemd-sysv udev dbus kmod \
+PKGS="systemd systemd-sysv systemd-resolved udev dbus kmod \
 iproute2 iputils-ping ethtool net-tools nftables \
 openssh-server \
 e2fsprogs f2fs-tools dosfstools parted gdisk \

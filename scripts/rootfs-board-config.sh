@@ -57,10 +57,16 @@ GU="$R/etc/systemd/system/getty.target.wants"
 mkdir -p "$MU" "$GU"
 
 # Debian 自带单元（注意 serial-getty 是模板，要链到 @.service 并放 getty.target.wants）
+# 注意：这里一律用 if 而不是 `[ -f x ] && cmd` —— 后者在文件不存在时返回非 0，
+# 配合 set -e 会让脚本静默退出（CI 上就踩过：容器没装 systemd-resolved）。
 link_lib() { # link_lib <单元名> <目标目录>
 	local u="$1" d="$2" src="/lib/systemd/system/$u"
-	[ -f "$R$src" ] || src="/usr/lib/systemd/system/$u"
-	[ -f "$R$src" ] && ln -sf "$src" "$d/$u"
+	if [ ! -f "$R$src" ]; then src="/usr/lib/systemd/system/$u"; fi
+	if [ -f "$R$src" ]; then
+		ln -sf "$src" "$d/$u"
+	else
+		echo "   （跳过 $u：未安装）"
+	fi
 }
 for u in ssh.service systemd-networkd.service systemd-resolved.service chrony.service \
          nftables.service wpa_supplicant.service; do link_lib "$u" "$MU"; done
@@ -80,7 +86,7 @@ fi
 # 本仓库的板级单元（含模板实例：h5000m-ap@ap24/ap5g → 指向 h5000m-ap@.service）
 for u in h5000m-firstboot.service h5000m-wifi-vif.service h5000m-boot-diagnostics.timer \
          at-webserver.service mt5700-web.service; do
-	[ -f "$R/etc/systemd/system/$u" ] && ln -sf "/etc/systemd/system/$u" "$MU/$u"
+	if [ -f "$R/etc/systemd/system/$u" ]; then ln -sf "/etc/systemd/system/$u" "$MU/$u"; fi
 done
 for inst in h5000m-ap@ap24.service h5000m-ap@ap5g.service; do
 	tpl="${inst%@*}@.service"
@@ -88,6 +94,8 @@ for inst in h5000m-ap@ap24.service h5000m-ap@ap5g.service; do
 		ln -sf "/etc/systemd/system/$tpl" "$MU/$inst"
 	elif [ -f "$R/etc/systemd/system/$inst" ]; then
 		ln -sf "/etc/systemd/system/$inst" "$MU/$inst"
+	else
+		echo "   （跳过 $inst：单元未铺开）"
 	fi
 done
 echo "   multi-user.target.wants:"; ls "$MU" | sed 's/^/     /'

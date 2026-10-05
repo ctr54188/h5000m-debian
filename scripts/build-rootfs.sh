@@ -38,7 +38,7 @@ printf '#!/bin/sh\nexit 101\n' > "$R/usr/sbin/policy-rc.d"; chmod +x "$R/usr/sbi
 echo "== apt update + 安装软件包"
 chroot "$R" apt-get -o Acquire::ForceIPv4=true update -qq
 chroot "$R" apt-get -o Acquire::ForceIPv4=true install -y -qq --no-install-recommends \
-	systemd systemd-sysv udev dbus kmod \
+	systemd systemd-sysv systemd-resolved udev dbus kmod \
 	iproute2 iputils-ping ethtool net-tools nftables \
 	openssh-server \
 	e2fsprogs f2fs-tools dosfstools parted gdisk \
