@@ -70,6 +70,9 @@ check_cfg "$ROOT/config/bsp.config" '^CONFIG_TARGET_mediatek_filogic=y'
 check_cfg "$ROOT/config/bsp.config" 'CONFIG_TARGET_mediatek_filogic_DEVICE_hiveton_h5000m'
 # 历史故障：.config 里 KERNEL_DEVTMPFS 关掉 → 内核不带 DEVTMPFS → Debian 起不来
 check_cfg "$ROOT/config/bsp.config" '^CONFIG_KERNEL_DEVTMPFS=y'
+# make defconfig 会把未显式设置的 KERNEL_DEVTMPFS_MOUNT 写成 is not set，
+# 从而把内核配置改回 DEVTMPFS_MOUNT=n（与已验证镜像不一致）→ 必须显式置 y
+check_cfg "$ROOT/config/bsp.config" '^CONFIG_KERNEL_DEVTMPFS_MOUNT=y'
 # BSP 侧补丁必须真的把 DEVTMPFS / WWAN / 80211 打开
 check_cfg "$ROOT/patches/bsp/0001-generic-config-6.12-devtmpfs-wwan-wifi.patch" '^\+CONFIG_DEVTMPFS=y'
 check_cfg "$ROOT/patches/bsp/0001-generic-config-6.12-devtmpfs-wwan-wifi.patch" '^\+CONFIG_DEVTMPFS_MOUNT=y'
