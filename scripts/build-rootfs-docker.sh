@@ -43,7 +43,17 @@ docker exec "$C" bash -c "apt-get update -qq && DEBIAN_FRONTEND=noninteractive a
 docker exec "$C" bash -c 'apt-get -qq clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/*'
 
 echo "== [3/6] 板级 overlay + 面板（必须在板级配置之前铺好）"
-docker cp "$ROOT/rootfs-overlay/." "$C:/"
+# 注意：Docker 会把 /etc/hostname、/etc/hosts、/etc/resolv.conf 绑定挂载进容器，
+# 用 docker cp 直接覆盖会报 "unlinkat /etc/hostname: device or resource busy"。
+# 因此先拷到容器内临时目录，删掉这三个文件再 cp -a 到根（内容由板级配置脚本写入）。
+docker cp "$ROOT/rootfs-overlay/." "$C:/tmp/overlay"
+docker exec "$C" bash -c '
+set -e
+cd /tmp/overlay
+rm -f etc/hostname etc/hosts etc/resolv.conf
+cp -a . /
+rm -rf /tmp/overlay
+'
 if [ -n "$PANEL_TARBALL" ] && [ -f "$PANEL_TARBALL" ]; then
 	docker cp "$PANEL_TARBALL" "$C:/tmp/panel.tgz"
 	docker exec "$C" tar xzf /tmp/panel.tgz -C / && docker exec "$C" rm -f /tmp/panel.tgz
@@ -56,6 +66,7 @@ docker exec "$C" bash -c 'chmod 0755 /usr/local/sbin/h5000m-* 2>/dev/null || tru
 echo "== [4/6] 板级配置（主机名/用户/静态 /dev/串口/启用 systemd 单元）"
 docker cp "$ROOT/scripts/rootfs-board-config.sh" "$C:/tmp/board-config.sh"
 docker exec -e KVER="$KVER" "$C" bash /tmp/board-config.sh | sed 's/^/   /'
+docker exec "$C" bash -c 'ln -sf /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf 2>/dev/null || true'
 
 echo "== [5/6] 导出 rootfs"
 mkdir -p "$ROOT/build"
@@ -64,6 +75,20 @@ rm -rf "$R"; mkdir -p "$R"
 tar xf "$ROOT/build/rootfs.tar" -C "$R"
 rm -f "$ROOT/build/rootfs.tar"
 echo "   $(du -sh "$R" | cut -f1) → $R"
+
+echo "== 导出后自检（关键文件 / 启用软链）"
+miss=0
+for f in etc/hostname etc/hosts etc/fstab etc/nftables.conf \
+         etc/hostapd/ap5g.conf etc/hostapd/ap24.conf \
+         etc/systemd/network/07-br0.network etc/systemd/network/30-modem.network \
+         usr/local/sbin/h5000m-firstboot.sh usr/local/sbin/h5000m-wifi-vif.sh \
+         usr/local/sbin/h5000m-5g-width.sh \
+         etc/systemd/system/multi-user.target.wants/systemd-networkd.service \
+         etc/systemd/system/multi-user.target.wants/nftables.service \
+         etc/systemd/system/getty.target.wants/serial-getty@ttyS0.service; do
+	[ -e "$R/$f" ] || { echo "   ✗ 缺 $f" >&2; miss=1; }
+done
+[ "$miss" = 0 ] && echo "   ✓ 全部关键文件在位" || { echo "!! rootfs 自检未通过" >&2; exit 1; }
 
 echo "== [6/6] 内核模块 / 固件（可选，来自 OWROOT）"
 if [ -n "$OWROOT" ]; then
