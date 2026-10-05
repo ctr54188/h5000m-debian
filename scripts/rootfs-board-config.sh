@@ -51,18 +51,47 @@ for n in "null c 1 3 666" "zero c 1 5 666" "full c 1 7 666" "random c 1 8 666" \
 done
 ln -sf /proc/self/fd "$R/dev/fd" 2>/dev/null || true
 
-echo "== 启用 systemd 单元（手工建软链，容器内没有运行 systemd 也能用）"
-W="$R/etc/systemd/system/multi-user.target.wants"
-mkdir -p "$W"
+echo "== 启用 systemd 单元（手工建软链；容器内没有运行 systemd 也能用）"
+MU="$R/etc/systemd/system/multi-user.target.wants"
+GU="$R/etc/systemd/system/getty.target.wants"
+mkdir -p "$MU" "$GU"
+
+# Debian 自带单元（注意 serial-getty 是模板，要链到 @.service 并放 getty.target.wants）
+link_lib() { # link_lib <单元名> <目标目录>
+	local u="$1" d="$2" src="/lib/systemd/system/$u"
+	[ -f "$R$src" ] || src="/usr/lib/systemd/system/$u"
+	[ -f "$R$src" ] && ln -sf "$src" "$d/$u"
+}
 for u in ssh.service systemd-networkd.service systemd-resolved.service chrony.service \
-         nftables.service serial-getty@ttyS0.service; do
-	[ -f "$R/lib/systemd/system/$u" ] && ln -sf "/lib/systemd/system/$u" "$W/$u"
-done
+         nftables.service wpa_supplicant.service; do link_lib "$u" "$MU"; done
+[ -f "$R/lib/systemd/system/serial-getty@.service" ] || \
+	[ -f "$R/usr/lib/systemd/system/serial-getty@.service" ]
+if [ -f "$R/lib/systemd/system/serial-getty@.service" ] || [ -f "$R/usr/lib/systemd/system/serial-getty@.service" ]; then
+	src=/lib/systemd/system/serial-getty@.service
+	[ -f "$R$src" ] || src=/usr/lib/systemd/system/serial-getty@.service
+	ln -sf "$src" "$GU/serial-getty@ttyS0.service"   # 串口控制台（救援通道）
+fi
+if [ -f "$R/lib/systemd/system/getty@.service" ] || [ -f "$R/usr/lib/systemd/system/getty@.service" ]; then
+	src=/lib/systemd/system/getty@.service
+	[ -f "$R$src" ] || src=/usr/lib/systemd/system/getty@.service
+	ln -sf "$src" "$GU/getty@tty1.service"
+fi
+
+# 本仓库的板级单元（含模板实例：h5000m-ap@ap24/ap5g → 指向 h5000m-ap@.service）
 for u in h5000m-firstboot.service h5000m-wifi-vif.service h5000m-boot-diagnostics.timer \
-         h5000m-ap@ap24.service h5000m-ap@ap5g.service at-webserver.service mt5700-web.service; do
-	[ -f "$R/etc/systemd/system/$u" ] && ln -sf "../$u" "$W/$u"
+         at-webserver.service mt5700-web.service; do
+	[ -f "$R/etc/systemd/system/$u" ] && ln -sf "/etc/systemd/system/$u" "$MU/$u"
 done
-ls "$W" | sed 's/^/   /'
+for inst in h5000m-ap@ap24.service h5000m-ap@ap5g.service; do
+	tpl="${inst%@*}@.service"
+	if [ -f "$R/etc/systemd/system/$tpl" ]; then
+		ln -sf "/etc/systemd/system/$tpl" "$MU/$inst"
+	elif [ -f "$R/etc/systemd/system/$inst" ]; then
+		ln -sf "/etc/systemd/system/$inst" "$MU/$inst"
+	fi
+done
+echo "   multi-user.target.wants:"; ls "$MU" | sed 's/^/     /'
+echo "   getty.target.wants:";     ls "$GU" | sed 's/^/     /'
 
 echo "== 板级 overlay（由调用方拷入 /etc、/usr/local/sbin 后再跑本脚本亦可）"
 [ -n "${OWROOT:-}" ] && [ -d "${OWROOT}/lib/modules/$KVER" ] && {

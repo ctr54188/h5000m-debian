@@ -186,12 +186,18 @@ jobs:
 
       - name: 装入内核模块与固件，生成 modules.dep
         run: |
-          sudo mkdir -p rootfs/lib/modules/${{ env.KVER }}
-          sudo tar xzf out/kernel/modules-${{ env.KVER }}.tar.gz -C rootfs/lib/modules/${{ env.KVER }}
-          echo "模块数：$(find rootfs/lib/modules/${{ env.KVER }} -name '*.ko' | wc -l)"
-          for m in mt7996e mt76 cfg80211 mac80211 cdc_ncm option qmi_wwan pwm-fan; do
-            find rootfs/lib/modules/${{ env.KVER }} -name "$m.ko" | grep -q . && echo "  ✓ $m.ko" || echo "  ✗ 缺 $m.ko"
+          # 模块包内部是 lib/modules/<kver>/…，所以解到 rootfs 根（不是 rootfs/lib/modules/<kver>）
+          sudo tar xzf out/kernel/modules-${{ env.KVER }}.tar.gz -C rootfs
+          echo "模块数：$(find rootfs/lib/modules/${{ env.KVER }} -maxdepth 1 -name '*.ko' | wc -l)"
+          miss=0
+          for m in mt7996e mt76 mt76-connac-lib cfg80211 mac80211 cdc_ncm cdc_mbim qmi_wwan option usbnet pwm-fan xhci-mtk-hcd; do
+            if find rootfs/lib/modules/${{ env.KVER }} -maxdepth 1 -name "$m.ko" | grep -q .; then
+              echo "  ✓ $m.ko"
+            else
+              echo "::error::模块 $m.ko 没装到 /lib/modules/${{ env.KVER }}/（解包层级不对？）"; miss=1
+            fi
           done
+          [ "$miss" = 0 ] || exit 1
           if [ -f out/kernel/firmware.tar.gz ]; then
             sudo mkdir -p rootfs/lib/firmware
             sudo tar xzf out/kernel/firmware.tar.gz -C rootfs/lib/firmware

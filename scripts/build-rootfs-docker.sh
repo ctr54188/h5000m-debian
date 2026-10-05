@@ -40,11 +40,7 @@ echo "== [2/6] 安装软件包（原生速度）"
 docker exec "$C" bash -c "apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends $PKGS"
 docker exec "$C" bash -c 'apt-get -qq clean && rm -rf /var/lib/apt/lists/* /var/cache/apt/*'
 
-echo "== [3/6] 板级配置"
-docker cp "$ROOT/scripts/rootfs-board-config.sh" "$C:/tmp/board-config.sh"
-docker exec -e KVER="$KVER" "$C" bash /tmp/board-config.sh
-
-echo "== [4/6] 导出 rootfs"
+echo "== [3/6] 导出 rootfs"
 mkdir -p "$ROOT/build"
 docker export "$C" -o "$ROOT/build/rootfs.tar"
 rm -rf "$R"; mkdir -p "$R"
@@ -52,7 +48,7 @@ tar xf "$ROOT/build/rootfs.tar" -C "$R"
 rm -f "$ROOT/build/rootfs.tar"
 echo "   $(du -sh "$R" | cut -f1) → $R"
 
-echo "== [5/6] 板级 overlay + 面板"
+echo "== [4/6] 板级 overlay + 面板（必须先铺，板级配置才能启用这些单元）"
 cp -a "$ROOT/rootfs-overlay/." "$R/"
 chmod 0755 "$R/usr/local/sbin/"h5000m-* 2>/dev/null || true
 if [ -n "$PANEL_TARBALL" ] && [ -f "$PANEL_TARBALL" ]; then
@@ -61,6 +57,11 @@ if [ -n "$PANEL_TARBALL" ] && [ -f "$PANEL_TARBALL" ]; then
 else
 	echo "   （未提供 PANEL_TARBALL，跳过面板）"
 fi
+
+echo "== [5/6] 板级配置（主机名/用户/静态 /dev/串口/启用 systemd 单元）"
+docker cp "$ROOT/scripts/rootfs-board-config.sh" "$C:/tmp/board-config.sh" 2>/dev/null || true
+# 直接对导出后的树做配置（不需要再进容器）：board-config 支持 PREFIX 前缀
+PREFIX="$R/" KVER="$KVER" bash "$ROOT/scripts/rootfs-board-config.sh" | sed 's/^/   /'
 
 echo "== [6/6] 内核模块 / 固件（可选，来自 OWROOT）"
 if [ -n "$OWROOT" ] && [ -d "$OWROOT/lib/modules/$KVER" ]; then
