@@ -76,6 +76,22 @@ tar xf "$ROOT/build/rootfs.tar" -C "$R"
 rm -f "$ROOT/build/rootfs.tar"
 echo "   $(du -sh "$R" | cut -f1) → $R"
 
+echo "== 归一化属主/权限，并修补 Docker 绑定挂载导致的空文件"
+# 说明：
+#  * docker export + 非 root 解包 → 所有文件属主变成当前用户（CI 上是 1001），
+#    而 sshd 要求 host key 属主为 root，否则拒绝启动（设备就 SSH 不上了）；
+#  * Docker 会把 /etc/hostname、/etc/hosts、/etc/resolv.conf 绑定挂载进容器，
+#    容器内写的是挂载点，export 出来是空文件 → 这里重新写入。
+SUDO=""; [ "$(id -u)" != 0 ] && command -v sudo >/dev/null && SUDO=sudo
+$SUDO chown -R 0:0 "$R"
+printf 'h5000m\n' > "$R/etc/hostname.tmp" && $SUDO mv "$R/etc/hostname.tmp" "$R/etc/hostname"
+printf '127.0.0.1\tlocalhost\n127.0.1.1\th5000m\n::1\t\tlocalhost ip6-localhost ip6-loopback\n' > "$R/etc/hosts.tmp" && $SUDO mv "$R/etc/hosts.tmp" "$R/etc/hosts"
+$SUDO rm -f "$R/etc/resolv.conf"
+$SUDO ln -sf /run/systemd/resolve/stub-resolv.conf "$R/etc/resolv.conf"
+$SUDO chmod 0644 "$R/etc/hostname" "$R/etc/hosts"
+echo "   /etc/hostname = $(cat "$R/etc/hostname")  /etc/hosts 行数 = $(wc -l < "$R/etc/hosts")  /etc/resolv.conf -> $(readlink "$R/etc/resolv.conf" 2>/dev/null)"
+echo "   /etc/shadow 属主 = $(stat -c '%u:%g' "$R/etc/shadow" 2>/dev/null)"
+
 echo "== 导出后自检（关键文件 / 启用软链）"
 miss=0
 for f in etc/hostname etc/hosts etc/fstab etc/nftables.conf \
@@ -88,7 +104,11 @@ for f in etc/hostname etc/hosts etc/fstab etc/nftables.conf \
          etc/systemd/system/getty.target.wants/serial-getty@ttyS0.service; do
 	[ -e "$R/$f" ] || { echo "   ✗ 缺 $f" >&2; miss=1; }
 done
-[ "$miss" = 0 ] && echo "   ✓ 全部关键文件在位" || { echo "!! rootfs 自检未通过" >&2; exit 1; }
+[ "$miss" = 0 ] || { echo "!! rootfs 自检未通过（缺文件）" >&2; exit 1; }
+[ -s "$R/etc/hostname" ] || { echo "!! /etc/hostname 为空" >&2; exit 1; }
+[ -s "$R/etc/hosts" ] || { echo "!! /etc/hosts 为空" >&2; exit 1; }
+[ "$(stat -c '%u' "$R/etc/shadow")" = "0" ] || { echo "!! /etc/shadow 属主不是 root（sshd 会拒绝启动）" >&2; exit 1; }
+echo "   ✓ 关键文件、hostname/hosts 内容、属主(root) 全部正确"
 
 echo "== [6/6] 内核模块 / 固件（可选，来自 OWROOT）"
 if [ -n "$OWROOT" ]; then

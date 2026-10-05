@@ -55,13 +55,24 @@ jobs:
       - name: 构建 rootfs（arm64 原生 docker）
         run: scripts/build-rootfs-docker.sh
 
+      - name: 归一化属主 + 修补 Docker 绑定挂载导致的空文件
+        run: |
+          sudo chown -R 0:0 rootfs
+          sudo bash -c 'printf "h5000m\n" > rootfs/etc/hostname'
+          sudo bash -c 'printf "127.0.0.1\tlocalhost\n127.0.1.1\th5000m\n::1\t\tlocalhost ip6-localhost ip6-loopback\n" > rootfs/etc/hosts'
+          sudo rm -f rootfs/etc/resolv.conf
+          sudo ln -sf /run/systemd/resolve/stub-resolv.conf rootfs/etc/resolv.conf
+          sudo chmod 0644 rootfs/etc/hostname rootfs/etc/hosts
+          echo "hostname=$(cat rootfs/etc/hostname) shadow_uid=$(stat -c %u rootfs/etc/shadow)"
+          test -s rootfs/etc/hostname && test -s rootfs/etc/hosts && test "$(stat -c %u rootfs/etc/shadow)" = "0"
+
       - name: 打包 rootfs.ext4
         run: |
           truncate -s 805306368 rootfs.ext4
           mkfs.ext4 -F -L rootfs -d rootfs rootfs.ext4
           e2fsck -fn rootfs.ext4 || true
           sha256sum rootfs.ext4 > rootfs.ext4.sha256
-          tar czf rootfs-overlay-$(date +%Y%m%d).tar.gz -C rootfs .
+          sudo tar czf rootfs-overlay-$(date +%Y%m%d).tar.gz --owner=0 --group=0 -C rootfs .
           ls -lh rootfs.ext4 rootfs-overlay-*.tar.gz
 
       - uses: actions/upload-artifact@v4
