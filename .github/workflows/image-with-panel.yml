@@ -229,8 +229,11 @@ jobs:
       - name: 还原 rootfs 树
         run: |
           mkdir -p rootfs
+          # overlay tar 是 --owner=0 --group=0 打的，以 root 解包即可保持 root 属主。
+          # 千万不要 chown 回 runner 用户：那会让 sshd 拒绝 host key（设备 SSH 上不去）。
           sudo tar xzf rootfs-artifact/rootfs-overlay-*.tar.gz -C rootfs
-          sudo chown -R "$(id -u):$(id -g)" rootfs
+          echo "shadow uid=$(stat -c %u rootfs/etc/shadow)  hostname=[$(cat rootfs/etc/hostname)]"
+          test "$(stat -c %u rootfs/etc/shadow)" = "0" || { echo "::error::rootfs 属主不是 root"; exit 1; }
 
       - name: 装入内核模块与固件，生成 modules.dep
         run: |
