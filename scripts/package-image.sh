@@ -20,6 +20,9 @@ ROOTFS_SIZE="${ROOTFS_SIZE:-805306368}"     # 768 MiB，与网页升级槽位一
 ROOTFS_LABEL="${ROOTFS_LABEL:-rootfs}"
 BOOTARGS="${BOOTARGS:-console=ttyS0,115200n8 earlycon=uart8250,mmio32,0x11000000 root=PARTLABEL=$ROOTFS_LABEL rootwait rootfstype=ext4 ro pci=pcie_bus_perf}"
 
+# rootfs 属主是 root（正确），非 root 用户跑 mkfs.ext4 -d 会读不了 /root、/etc/ssl/private 等
+SUDO=""; [ "$(id -u)" != 0 ] && command -v sudo >/dev/null 2>&1 && SUDO=sudo
+
 [ -f "$IMAGE" ] || { echo "缺少内核 Image：$IMAGE" >&2; exit 1; }
 [ -f "$DTB" ]   || { echo "缺少 board.dtb：$DTB" >&2; exit 1; }
 [ -d "$R" ]     || { echo "缺少 rootfs：$R" >&2; exit 1; }
@@ -64,7 +67,7 @@ mkimage -f "$OUT/kernel.its" "$OUT/kernel.itb" > "$OUT/fit-inspection.txt"
 
 echo "== [3/5] 生成 rootfs.ext4（$ROOTFS_SIZE 字节，label=${ROOTFS_LABEL}）"
 truncate -s "$ROOTFS_SIZE" "$OUT/root.part"
-mkfs.ext4 -F -L "$ROOTFS_LABEL" -d "$R" "$OUT/root.part" > "$OUT/mkfs.log" 2>&1
+$SUDO mkfs.ext4 -F -L "$ROOTFS_LABEL" -d "$R" "$OUT/root.part" > "$OUT/mkfs.log" 2>&1
 e2fsck -fn "$OUT/root.part" > "$OUT/fsck.log" 2>&1 || true
 
 echo "== [4/5] 组装 sysupgrade tar"

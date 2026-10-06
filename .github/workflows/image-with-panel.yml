@@ -105,8 +105,9 @@ jobs:
       - name: 打包 rootfs.ext4
         run: |
           truncate -s 805306368 rootfs.ext4
-          mkfs.ext4 -F -L rootfs -d rootfs rootfs.ext4
-          e2fsck -fn rootfs.ext4 || true
+          # rootfs 属主是 root，mkfs -d 需要 root 权限才能读私有目录
+          sudo mkfs.ext4 -F -L rootfs -d rootfs rootfs.ext4
+          sudo e2fsck -fn rootfs.ext4 || true
           sha256sum rootfs.ext4 > rootfs.ext4.sha256
           sudo tar czf rootfs-overlay-$(date +%Y%m%d).tar.gz --owner=0 --group=0 -C rootfs .
           ls -lh rootfs.ext4 rootfs-overlay-*.tar.gz
