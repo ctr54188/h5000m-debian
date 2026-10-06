@@ -258,6 +258,9 @@ jobs:
           fi
           sudo depmod -b "$PWD/rootfs" ${{ env.KVER }} 2>&1 | tail -3 || true
           ls rootfs/lib/modules/${{ env.KVER }}/modules.dep >/dev/null && echo "modules.dep 已生成"
+          echo "模块属主=$(stat -c %u rootfs/lib/modules/${{ env.KVER }}/mt7996e.ko 2>/dev/null || echo ?)"
+          test "$(stat -c %u rootfs/lib/modules/${{ env.KVER }}/mt7996e.ko 2>/dev/null || echo 1)" = "0" \
+            || { echo "::error::模块属主不是 root（modules tar 忘了 --owner=0？）"; exit 1; }
 
       - name: 打包
         run: |

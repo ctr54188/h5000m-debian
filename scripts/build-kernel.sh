@@ -87,7 +87,7 @@ rm -rf "$OUT/.mods"; mkdir -p "$MODDIR"
 find "$BD" -name '*.ko' 2>/dev/null | while read -r f; do cp -n "$f" "$MODDIR/" 2>/dev/null || true; done
 find "$BSP"/build_dir/target-* -path '*.pkgdir*' -name '*.ko' 2>/dev/null \
 	| while read -r f; do cp -n "$f" "$MODDIR/" 2>/dev/null || true; done
-( cd "$OUT/.mods" && tar czf "$OUT/modules-${KVER}.tar.gz" . )
+( cd "$OUT/.mods" && tar czf "$OUT/modules-${KVER}.tar.gz" --owner=0 --group=0 . )
 find "$MODDIR" -name '*.ko' > "$OUT/modules.list"
 echo "   模块数：$(wc -l < "$OUT/modules.list")"
 for m in mt7996e mt76 mt76-connac-lib cfg80211 mac80211 cdc_ncm option qmi_wwan pwm_fan; do
@@ -109,7 +109,7 @@ if [ -n "$LFW" ] && [ -d "$LFW/mediatek" ]; then
 	cp -rn "$LFW/mediatek/." "$FW/mediatek/" 2>/dev/null || true
 fi
 if [ -d "$FW/mediatek" ] || [ -n "$(find "$FW" -type f 2>/dev/null | head -1)" ]; then
-	( cd "$FW" && tar czf "$OUT/firmware.tar.gz" . )
+	( cd "$FW" && tar czf "$OUT/firmware.tar.gz" --owner=0 --group=0 . )
 	echo "   固件：$(find "$FW" -type f | wc -l) 个文件 → firmware.tar.gz"
 	for f in mt7992_wm_23.bin mt7992_eeprom_23_2i5i.bin mt7992_rom_patch_23.bin mt7992_wa_23.bin mt7992_dsp_23.bin; do
 		[ -f "$FW/mediatek/mt7996/$f" ] && echo "     ✓ $f" || echo "     ✗ 缺 $f"
